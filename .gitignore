@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+__ARCHIVO__
+__VENDORS__
+__WORKSHOP__
+.obsidian
+
+
+# Virtual environments
+.venv
+
+# Environment variables (secrets)
+.env
+
+# Configuration files with potential secrets
+config.yaml
+go2rtc.yaml
+
+# Models - ignore all model files (ONNX and PT)
+models/
+models/*.onnx
+models/*.pt

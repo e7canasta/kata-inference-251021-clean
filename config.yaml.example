@@ -1,0 +1,435 @@
+# InferencePipeline Configuration Example
+# ========================================
+# Copy this file to config.yaml and customize for your environment
+
+# Inference Pipeline Settings
+pipeline:
+  # RTSP video source URL (via go2rtc proxy or direct camera)
+  rtsp_url: "rtsp://127.0.0.1:8554/live"
+
+  # YOLO model ID from Roboflow
+  # Available models: yolov8n-640, yolov8s-640, yolov11n-640, yolov11s-640
+  # NOTE: Ignored if models.use_local is true
+  model_id: "yolov11n-640"
+
+  # Maximum frames per second to process
+  # Lower values reduce CPU/GPU usage but decrease responsiveness
+  max_fps: 2
+
+  # Enable visualization window with bounding boxes
+  enable_visualization: true
+
+  # Display performance statistics (FPS, latency) on visualization
+  display_statistics: true
+
+
+# ============================================================================
+# Local Models (ONNX - EXPERIMENTAL)
+# ============================================================================
+# Usar modelos YOLO locales en formato ONNX para mejor performance.
+#
+# Ventajas:
+#   - ~2-3x más rápido que modelos de Roboflow (especialmente con cuantización)
+#   - No requiere API key ni conexión a internet
+#   - Modelos optimizados para tu hardware específico
+#
+# Desventajas:
+#   - Requiere exportar modelos manualmente (ver scripts/export_onnx_models.py)
+#   - Sin auto-sync de nuevas versiones desde Roboflow
+#
+# Exportar modelos:
+#   python scripts/export_onnx_models.py
+#
+# Modelos disponibles:
+#   - models/yolo11n-320.onnx (Nano - ultrafast, ~6MB)
+#   - models/yolo11s-320.onnx (Small - balanced, ~22MB)
+#   - models/yolo11m-320.onnx (Medium - accurate, ~50MB)
+#
+models:
+  # Use local ONNX model (true) or Roboflow cloud model (false)
+  use_local: false
+
+  # Path to local ONNX model (required if use_local is true)
+  # Relative to project root
+  local_path: "models/yolo11n-320.onnx"
+
+  # Image size for inference
+  # ⚠️ IMPORTANTE: Debe coincidir con el tamaño del modelo ONNX exportado!
+  #
+  # Ejemplo correcto:
+  #   local_path: "models/yolo11n-320.onnx" → imgsz: 320 ✅
+  #   local_path: "models/yolo11n-640.onnx" → imgsz: 640 ✅
+  #
+  # Ejemplo incorrecto (causará RuntimeError):
+  #   local_path: "models/yolo11n-640.onnx" → imgsz: 320 ❌
+  #
+  # Common sizes: 320 (fast), 640 (balanced), 1280 (accurate)
+  imgsz: 320
+
+  # Confidence threshold (0.0 - 1.0)
+  confidence: 0.25
+
+  # IOU threshold for NMS (0.0 - 1.0)
+  iou_threshold: 0.45
+
+
+# ============================================================================
+# ROI Strategy (Region Of Interest - Custom Logic Feature)
+# ============================================================================
+# IMPORTANTE: Configurar mode != 'none' activa InferencePipeline.init_with_custom_logic()
+# Por default (mode: none) usa el pipeline standard (InferencePipeline.init)
+#
+# ROI optimiza performance al inferir solo en región de interés específica.
+#
+# Performance Benefits:
+#   - Crop reduce píxeles procesados → ~3-4x más FPS
+#   - Trade-off: puede perder detecciones fuera del ROI
+#
+# Estrategias disponibles:
+#   - none: Full frame (sin crop) - pipeline standard
+#   - adaptive: ROI dinámico calculado por detecciones previas
+#   - fixed: ROI estático configurado manualmente
+#
+roi_strategy:
+  # Estrategia activa (solo una a la vez)
+  # Opciones: "none", "adaptive", "fixed"
+  mode: "none"
+
+  # ========================================================================
+  # ADAPTIVE ROI: ROI dinámico basado en detecciones
+  # ========================================================================
+  # Optimiza performance adaptándose al contenido del video
+  #
+  # Ventajas:
+  #   - Se adapta automáticamente a movimiento de objetos
+  #   - No requiere configuración manual de coordenadas
+  #
+  # Desventajas:
+  #   - Puede perder detecciones si objetos salen del ROI rápidamente
+  #   - Requiere detecciones iniciales en full frame
+  #
+  # ROI Strategy (sin distorsión):
+  #   - ROI siempre CUADRADO (evita letterbox padding)
+  #   - Tamaño en MÚLTIPLOS de models.imgsz (resize eficiente)
+  #   - Ejemplo: si imgsz=320, ROI = 320×320, 640×640, 960×960, etc.
+  #
+  # MQTT Commands (solo si mode: adaptive):
+  #   mosquitto_pub -t inference/control/commands -m '{"command": "toggle_crop"}'
+  #
+  adaptive:
+    # Margin: porcentaje de expansión alrededor del bbox de detecciones (0.2 = 20%)
+    margin: 0.2
+
+    # Smoothing: factor de suavizado temporal del ROI (0 = sin suavizado, 1 = máximo suavizado)
+    # Valores más altos hacen que el ROI cambie más lentamente entre frames
+    smoothing: 0.3
+
+    # ROI size constraints (para evitar distorsión y optimizar resize)
+    # ROI será cuadrado y múltiplo de models.imgsz
+    min_roi_multiple: 1  # Mínimo: 1× imgsz (ej: 320×320 si imgsz=320)
+    max_roi_multiple: 4  # Máximo: 4× imgsz (ej: 1280×1280 si imgsz=320)
+
+    # Show ROI statistics and performance metrics
+    # Desactivar en producción para mejor performance (evita cálculos de métricas)
+    # Métricas: size_multiple, crop_ratio, pixel_reduction, etc.
+    show_statistics: true
+
+    # Resize ROI to model size (zoom) vs padding con negro
+    # ⚠️ TRADE-OFF: Mejor detección de objetos pequeños vs. cambio de escala
+    #
+    # false (default): ROI más pequeño que imgsz → padding con negro
+    #   - Mantiene escala original de objetos
+    #   - Píxeles negros desperdiciados
+    #   - ✅ Mejor para: Detección de personas, vehículos (escala importa)
+    #
+    # true: ROI más pequeño que imgsz → resize/zoom a imgsz×imgsz
+    #   - Aprovecha toda la resolución del modelo
+    #   - Cambia escala de objetos (modelo entrenado con escala real)
+    #   - ✅ Mejor para: Objetos pequeños en zona específica (mesa con teléfonos)
+    #
+    # Ejemplo:
+    #   ROI: 200×200px, imgsz: 320
+    #   false → 200×200 + padding negro → 320×320 (mantiene escala)
+    #   true  → 200×200 resize → 320×320 (zoom, mejor detección pequeña)
+    resize_to_model: false
+
+  # ========================================================================
+  # FIXED ROI: ROI estático con coordenadas configuradas
+  # ========================================================================
+  # Optimiza performance con ROI fijo (útil para cámaras estáticas)
+  #
+  # Ventajas:
+  #   - Configuración simple y predecible
+  #   - Ideal para escenas estáticas (ej: entrada de edificio, zona de picking)
+  #   - No depende de detecciones previas
+  #
+  # Desventajas:
+  #   - No se adapta a movimiento fuera del ROI configurado
+  #   - Requiere ajuste manual de coordenadas
+  #
+  # Coordenadas normalizadas [0.0 - 1.0]:
+  #   - 0.0 = borde izquierdo/superior
+  #   - 1.0 = borde derecho/inferior
+  #
+  # Ejemplo: ROI centrado que cubre 60% del frame
+  #   x_min: 0.2, x_max: 0.8 → desde 20% hasta 80% horizontal
+  #   y_min: 0.2, y_max: 0.8 → desde 20% hasta 80% vertical
+  #
+  # Visualización:
+  #   +---------------------------+
+  #   |     (0.2, 0.2)            |
+  #   |         +---------+       |
+  #   |         |   ROI   |       |
+  #   |         +---------+       |
+  #   |            (0.8, 0.8)     |
+  #   +---------------------------+
+  #
+  fixed:
+    # Coordenadas normalizadas (independiente de resolución)
+    x_min: 0.2  # 20% desde izquierda
+    y_min: 0.2  # 20% desde arriba
+    x_max: 0.8  # hasta 80% horizontal
+    y_max: 0.8  # hasta 80% vertical
+
+    # Mostrar overlay del ROI en visualización (ayuda para ajustar coordenadas)
+    show_overlay: true
+
+    # Resize ROI to model size (zoom) vs padding con negro
+    # ⚠️ TRADE-OFF: Mismo que en adaptive (ver documentación arriba)
+    #
+    # Útil cuando el ROI fijo es más pequeño que el modelo:
+    # - true  = zoom/resize ROI a model size (mejor detección pequeña)
+    # - false = padding con negro (mantiene escala original)
+    #
+    # Ejemplo caso de uso (resize_to_model: true):
+    # - Cámara fija apuntando a mesa de trabajo (1920×1080)
+    # - ROI fijo: zona de picking 400×400px (solo la mesa)
+    # - Model: yolo11n-320 (320×320px)
+    # - Con true: 400×400 → resize 320×320 (aprovecha resolución)
+    # - Con false: 400×400 → crop 320×320 center + padding (desperdicia)
+    resize_to_model: false
+
+
+# ============================================================================
+# Detection Stabilization (Reduce Flickering/Parpadeos)
+# ============================================================================
+# Estabiliza detecciones para reducir parpadeos con modelos pequeños/rápidos.
+#
+# Problema resuelto:
+#   - Detecciones inestables (aparece/desaparece en frames consecutivos)
+#   - Falsos negativos intermitentes (objeto presente pero no detectado)
+#   - Ruido visual en visualización (bounding boxes parpadeantes)
+#
+# Estrategias disponibles:
+#   - none: Sin estabilización (baseline)
+#   - temporal: Filtrado temporal + hysteresis (FASE 1 - IMPLEMENTADO)
+#   - iou_tracking: Matching espacial IoU (FASE 2 - Coming soon)
+#   - confidence_weighted: Persistencia adaptativa (FASE 3 - Coming soon)
+#
+# Performance Impact:
+#   - Temporal: ~1-2% overhead (despreciable)
+#   - Trade-off: Introduce latencia de N frames (configurable)
+#
+# MQTT Commands:
+#   - stats: Consultar estadísticas de estabilización
+#
+detection_stabilization:
+  # Estrategia activa (solo una a la vez)
+  # Opciones: "none", "temporal" (más estrategias en futuras fases)
+  mode: "none"
+
+  # ========================================================================
+  # TEMPORAL + HYSTERESIS: Filtrado temporal con umbrales adaptativos
+  # ========================================================================
+  # Estrategia simple y efectiva (70-80% mejora en estabilidad)
+  #
+  # Concepto:
+  #   1. Umbral de aparición (high): Nueva detección debe superar appear_conf
+  #   2. Tracking temporal: Requiere min_frames consecutivos para confirmar
+  #   3. Umbral de persistencia (low): Una vez confirmado, usa persist_conf más bajo
+  #   4. Gap tolerance: Tolera max_gap frames sin detección antes de eliminar
+  #
+  # Ejemplo (min_frames=3, max_gap=2, appear=0.5, persist=0.3):
+  #   Frame 1: person 0.45 → IGNORAR (< 0.5 appear)
+  #   Frame 2: person 0.52 → TRACKING (>= 0.5, frames=1/3)
+  #   Frame 3: person 0.48 → TRACKING (>= 0.3 persist, frames=2/3)
+  #   Frame 4: person 0.51 → CONFIRMED! Emite detección (frames=3/3)
+  #   Frame 5: person 0.35 → KEEP (>= 0.3 persist, confirmed)
+  #   Frame 6: (no detection) → GAP 1/2
+  #   Frame 7: (no detection) → REMOVED (gap > max_gap)
+  #
+  # Ventajas:
+  #   ✅ Simple de implementar y debuggear
+  #   ✅ Funciona bien en práctica
+  #   ✅ Bajo overhead computacional
+  #   ✅ Adapta strictness según confianza
+  #
+  # Desventajas:
+  #   ⚠️ Introduce latencia de min_frames (ej: 3 frames @ 2fps = 1.5s)
+  #   ⚠️ No maneja oclusiones temporales (FASE 2: iou_tracking)
+  #
+  # Tuning tips:
+  #   - min_frames alto = más estable, más latencia
+  #   - max_gap alto = tolera más oclusiones, más falsos positivos
+  #   - appear_conf alto = menos ruido, pierde detecciones débiles
+  #   - persist_conf bajo = mantiene objetos con baja confianza temporal
+  #
+  temporal:
+    # Frames consecutivos requeridos para confirmar detección
+    # Valores típicos: 2-5 (2fps → 1-2.5 segundos latencia)
+    # 3 = buen balance estabilidad/latencia
+    min_frames: 3
+
+    # Frames sin detección antes de eliminar track
+    # Valores típicos: 1-5 (1-5 frames de tolerancia)
+    # 2 = tolera parpadeos cortos pero elimina rápido
+    max_gap: 2
+
+  # Hysteresis: Umbrales de confianza adaptativos
+  #
+  # Concepto (Schmitt trigger en electrónica):
+  #   - Umbral alto para APARECER (evita ruido)
+  #   - Umbral bajo para PERSISTIR (evita parpadeos)
+  #
+  # appear_conf > persist_conf SIEMPRE
+  #
+  hysteresis:
+    # Umbral de confianza para nueva detección (estricto)
+    # Valores típicos: 0.4-0.6
+    # 0.5 = solo acepta detecciones con confianza >= 50%
+    appear_confidence: 0.5
+
+    # Umbral de confianza para detección confirmada (relajado)
+    # Valores típicos: 0.2-0.4 (siempre < appear_confidence)
+    # 0.3 = mantiene detecciones confirmadas con confianza >= 30%
+    persist_confidence: 0.3
+
+  # ========================================================================
+  # IOU TRACKING: Matching espacial frame-a-frame (FASE 2 - Coming soon)
+  # ========================================================================
+  # Matching de detecciones usando Intersection over Union (IoU)
+  #
+  # Ventajas:
+  #   ✅ Maneja oclusiones temporales
+  #   ✅ Más robusto que temporal filtering
+  #   ✅ Permite "recuperar" objetos
+  #
+  # Desventajas:
+  #   ⚠️ Más complejo (necesita matching algorithm)
+  #   ⚠️ Puede confundir objetos cercanos
+  #
+  # NOTA: No implementado aún, reservado para FASE 2
+  #
+  # iou_tracking:
+  #   iou_threshold: 0.3  # IoU mínimo para considerar "mismo objeto"
+  #   max_age: 5          # Frames sin match antes de eliminar
+
+  # ========================================================================
+  # CONFIDENCE-WEIGHTED: Persistencia adaptativa (FASE 3 - Coming soon)
+  # ========================================================================
+  # Combina temporal + IoU con pesos adaptativos
+  #
+  # Ventajas:
+  #   ✅ Más inteligente (aprende de historia)
+  #   ✅ Adapta automáticamente a calidad del modelo
+  #
+  # Desventajas:
+  #   ⚠️ Más parámetros para tunear
+  #   ⚠️ Requiere tracking state
+  #
+  # NOTA: No implementado aún, reservado para FASE 3
+  #
+  # confidence_weighted:
+  #   alpha: 0.7        # Peso de confianza actual vs histórica
+  #   min_history: 3    # Mínimo frames para promediar
+
+
+# ============================================================================
+# BACKWARD COMPATIBILITY (DEPRECATED - usar roi_strategy)
+# ============================================================================
+# La estructura antigua adaptive_crop.enabled sigue soportada pero deprecated
+# Si existe roi_strategy, adaptive_crop es ignorado
+#
+# Migración:
+#   adaptive_crop.enabled: false → roi_strategy.mode: "none"
+#   adaptive_crop.enabled: true  → roi_strategy.mode: "adaptive"
+#
+# adaptive_crop:
+#   enabled: false
+#   margin: 0.2
+#   smoothing: 0.3
+#   min_roi_multiple: 1
+#   max_roi_multiple: 4
+#   show_statistics: true
+
+
+# MQTT Broker Configuration
+mqtt:
+  broker:
+    # MQTT broker hostname or IP
+    host: "localhost"
+
+    # MQTT broker port (default: 1883)
+    port: 1883
+
+    # Username for MQTT authentication (leave null if not needed)
+    # RECOMMENDED: Set via environment variable MQTT_USERNAME instead
+    username: null
+
+    # Password for MQTT authentication (leave null if not needed)
+    # RECOMMENDED: Set via environment variable MQTT_PASSWORD instead
+    password: null
+
+  topics:
+    # Topic for receiving control commands (pause/resume/stop/metrics)
+    control_commands: "inference/control/commands"
+
+    # Topic for publishing pipeline status updates
+    control_status: "inference/control/status"
+
+    # Topic for publishing inference data (detections)
+    data: "inference/data/detections"
+
+    # Topic for publishing pipeline metrics (throughput, latency)
+    metrics: "inference/data/metrics"
+
+  qos:
+    # QoS level for control plane (0, 1, or 2)
+    # 1 = at least once delivery (recommended for commands)
+    control: 1
+
+    # QoS level for data plane (0, 1, or 2)
+    # 0 = fire and forget (recommended for high-frequency data)
+    data: 0
+
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Reduce paho-mqtt logging verbosity
+  paho_level: "WARNING"
+
+
+# Model Environment Variables
+# Disable unused models to reduce dependencies and startup time
+models_disabled:
+  disabled:
+    - PALIGEMMA
+    - FLORENCE2
+    - QWEN_2_5
+    - CORE_MODEL_SAM
+    - CORE_MODEL_SAM2
+    - CORE_MODEL_CLIP
+    - CORE_MODEL_GAZE
+    - SMOLVLM2
+    - DEPTH_ESTIMATION
+    - MOONDREAM2
+    - CORE_MODEL_TROCR
+    - CORE_MODEL_GROUNDINGDINO
+    - CORE_MODEL_YOLO_WORLD
+    - CORE_MODEL_PE
