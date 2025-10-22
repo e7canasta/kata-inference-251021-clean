@@ -4,27 +4,36 @@ Spatial Matching Utilities for Object Tracking
 
 Bounded Context: Spatial Matching (geometría de tracking)
 
-This module provides spatial matching utilities for object tracking:
+This module provides spatial matching utilities and strategies for object tracking:
 - IoU (Intersection over Union) calculation
-- Bounding box overlap detection
-- Distance metrics for tracking
+- Matching strategies (Strategy pattern)
+- Hierarchical matching with fallbacks
+- Composable for compound/consensus strategies
 
-Design:
-- Pure functions (no side effects)
-- Zero external dependencies
-- Property-testable (IoU properties: symmetry, bounded [0,1], etc.)
+Design Philosophy:
+- Strategy pattern para matching algorithms
+- Composable (preparado para compound strategies)
+- Testable (cada strategy independientemente)
+- Extensible (agregar strategies sin modificar existentes)
 
-Reusability:
-- Can be used from stabilization (detection tracking)
-- Can be used from adaptive ROI (multi-object tracking)
-- Can be used for general bbox matching tasks
+Práctica de Diseño (no over-engineering):
+- Encapsulación de algoritmos para clarity
+- Testing mejorado (mock lightweight)
+- Preparado para evolución (compound, consensus, toggle)
 
 Performance:
 - Optimized for normalized coordinates (0.0-1.0)
 - Efficient computation (no NumPy needed, pure Python)
 """
 
-from typing import Dict
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional, TYPE_CHECKING
+import logging
+
+if TYPE_CHECKING:
+    from .core import DetectionTrack
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_iou(bbox1: Dict[str, float], bbox2: Dict[str, float]) -> float:
@@ -105,3 +114,267 @@ def calculate_iou(bbox1: Dict[str, float], bbox2: Dict[str, float]) -> float:
         return 0.0
 
     return inter_area / union_area
+
+
+# ============================================================================
+# Matching Strategies (Strategy Pattern)
+# ============================================================================
+
+class MatchingStrategy(ABC):
+    """
+    Base abstracta para estrategias de matching.
+
+    Práctica de Diseño:
+    - Encapsular algoritmos de matching
+    - Testeable independientemente
+    - Composable (compound strategies)
+    - Toggle on/off (enabled flag)
+
+    Evolution:
+    - Fácil agregar: CentroidDistanceStrategy, FeatureVectorStrategy
+    - Compound: ConsensusStrategy([IoU, Centroid])
+    - A/B testing: toggle enabled en runtime
+    """
+
+    def __init__(self):
+        self.enabled = True  # Para toggle on/off
+
+    @abstractmethod
+    def calculate_similarity(
+        self,
+        detection: Dict[str, float],
+        track: 'DetectionTrack'
+    ) -> float:
+        """
+        Calcula similitud entre detection y track.
+
+        Args:
+            detection: {'class': str, 'x': float, 'y': float, 'width': float, 'height': float}
+            track: DetectionTrack con historial
+
+        Returns:
+            Similarity score [0.0, 1.0]
+            - 0.0 = no match
+            - 1.0 = perfect match
+        """
+        pass
+
+    @abstractmethod
+    def get_threshold(self) -> float:
+        """
+        Threshold mínimo para considerar match válido.
+
+        Returns:
+            Threshold [0.0, 1.0]
+        """
+        pass
+
+    def get_name(self) -> str:
+        """Nombre de la strategy (para logging/debugging)."""
+        return self.__class__.__name__
+
+
+class IoUMatchingStrategy(MatchingStrategy):
+    """
+    Primary matching: Spatial awareness vía IoU.
+
+    Encapsula el algoritmo IoU matching que estaba en core.py líneas 288-343.
+
+    Beneficios:
+    - Testeable aislado (no necesitas todo el stabilizer)
+    - Claro qué hace (spatial matching)
+    - Reutilizable (adaptive ROI multi-object tracking)
+    - Composable (consensus con otras strategies)
+
+    Threshold:
+    - 0.3 típico para "mismo objeto"
+    - Ajustable para diferentes escenarios
+    """
+
+    def __init__(self, threshold: float = 0.3):
+        """
+        Args:
+            threshold: IoU mínimo para considerar match (default 0.3)
+        """
+        super().__init__()
+        self.threshold = threshold
+
+    def calculate_similarity(
+        self,
+        detection: Dict[str, float],
+        track: 'DetectionTrack'
+    ) -> float:
+        """
+        Calcula IoU entre detection bbox y track bbox.
+
+        Returns:
+            IoU score [0.0, 1.0]
+            - 0.0 si clases diferentes
+            - IoU spatial si misma clase
+        """
+        # Different class = no match
+        if detection.get('class', 'unknown') != track.class_name:
+            return 0.0
+
+        # Calculate IoU (spatial overlap)
+        det_bbox = {
+            'x': detection['x'],
+            'y': detection['y'],
+            'width': detection['width'],
+            'height': detection['height'],
+        }
+
+        track_bbox = {
+            'x': track.x,
+            'y': track.y,
+            'width': track.width,
+            'height': track.height,
+        }
+
+        return calculate_iou(det_bbox, track_bbox)
+
+    def get_threshold(self) -> float:
+        """IoU threshold para match."""
+        return self.threshold
+
+
+class ClassOnlyStrategy(MatchingStrategy):
+    """
+    Fallback strategy: Match solo por clase (no spatial awareness).
+
+    Backward compatibility con matching simple original.
+
+    Usado como último fallback cuando:
+    - IoU no encuentra match (objetos muy separados)
+    - Solo hay 1 objeto de la clase (no ambigüedad)
+
+    Limitaciones:
+    - Puede confundir tracks con múltiples objetos misma clase
+    - No spatial awareness (puede swap tracks)
+    """
+
+    def calculate_similarity(
+        self,
+        detection: Dict[str, float],
+        track: 'DetectionTrack'
+    ) -> float:
+        """
+        Match binario por clase.
+
+        Returns:
+            1.0 si misma clase, 0.0 si diferente
+        """
+        if detection.get('class', 'unknown') == track.class_name:
+            return 1.0
+        return 0.0
+
+    def get_threshold(self) -> float:
+        """Threshold binario."""
+        return 0.5  # Binary: match or no match
+
+
+# ============================================================================
+# Hierarchical Matcher (Composable)
+# ============================================================================
+
+class HierarchicalMatcher:
+    """
+    Matcher que prueba strategies en orden de prioridad (Chain of Responsibility).
+
+    Diseño:
+    - Intenta cada strategy en orden
+    - Primera que supere threshold gana
+    - Fallback garantizado (ClassOnly nunca falla)
+    - Composable (preparado para compound strategies)
+
+    Usage:
+        matcher = HierarchicalMatcher()
+        best_track = matcher.find_best_match(detection, active_tracks)
+
+    Evolution (preparado para):
+        # Compound strategy
+        consensus = ConsensusStrategy([IoU, Centroid])
+        matcher.strategies.insert(0, consensus)
+
+        # Toggle strategies
+        matcher.strategies[0].enabled = False  # Desactivar IoU temporalmente
+    """
+
+    def __init__(
+        self,
+        strategies: Optional[List[MatchingStrategy]] = None,
+        iou_threshold: float = 0.3
+    ):
+        """
+        Args:
+            strategies: Lista de strategies (si None, usa default hierarchy)
+            iou_threshold: Threshold para IoU strategy
+        """
+        if strategies is None:
+            # Default hierarchy: IoU → ClassOnly fallback
+            self.strategies = [
+                IoUMatchingStrategy(threshold=iou_threshold),  # Primary
+                ClassOnlyStrategy(),                            # Fallback
+            ]
+        else:
+            self.strategies = strategies
+
+        logger.debug(
+            f"HierarchicalMatcher initialized with {len(self.strategies)} strategies: "
+            f"{[s.get_name() for s in self.strategies]}"
+        )
+
+    def find_best_match(
+        self,
+        detection: Dict[str, float],
+        tracks: List['DetectionTrack'],
+        matched_indices: set
+    ) -> Optional[tuple['DetectionTrack', int, float, str]]:
+        """
+        Encuentra mejor match usando jerarquía de strategies.
+
+        Args:
+            detection: Detección actual
+            tracks: Lista de tracks activos
+            matched_indices: Set de índices ya matched (para evitar re-match)
+
+        Returns:
+            (track, index, score, strategy_name) si hay match, None si no
+        """
+        if not tracks:
+            return None
+
+        # Intentar cada strategy en orden
+        for strategy in self.strategies:
+            # Skip si desactivada
+            if not strategy.enabled:
+                continue
+
+            best_track = None
+            best_idx = None
+            best_score = 0.0
+
+            # Buscar mejor match con esta strategy
+            for idx, track in enumerate(tracks):
+                # Skip si ya matched
+                if idx in matched_indices:
+                    continue
+
+                score = strategy.calculate_similarity(detection, track)
+
+                # Guardar mejor
+                if score > best_score and score >= strategy.get_threshold():
+                    best_score = score
+                    best_track = track
+                    best_idx = idx
+
+            # Si encontramos match con esta strategy, retornar
+            if best_track is not None:
+                logger.debug(
+                    f"Match found with {strategy.get_name()}: "
+                    f"score={best_score:.2f}, class={detection.get('class')}"
+                )
+                return (best_track, best_idx, best_score, strategy.get_name())
+
+        # No match con ninguna strategy
+        return None

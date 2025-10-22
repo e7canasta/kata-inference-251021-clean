@@ -4,29 +4,78 @@ Sink Factory
 
 Factory para crear y componer sinks del pipeline.
 
-Unifica lógica de creación de sinks que actualmente está en
-InferencePipelineController.setup() (líneas 214-233).
+Diseño: Registry-based desacoplamiento
+- Factory usa SinkRegistry internamente
+- Sinks desacoplados vía factory functions
+- Priority explícito, extensible
 
-Diseño: Complejidad por diseño
-- Factory centraliza decisiones sobre qué sinks crear
-- Controller solo orquesta, no decide detalles
+Filosofía: "Complejidad por diseño"
+- Desacoplamiento sin plugin system completo
+- Evolutivo: registry crece si necesitamos más features
 """
 from functools import partial
 from typing import List, Callable, Optional
 import logging
 
+from ..sinks import SinkRegistry
+
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Sink Factory Functions
+# ============================================================================
+
+def _create_mqtt_sink_factory(config, data_plane, **kwargs):
+    """Factory para MQTT sink (siempre presente)."""
+    from ...data import create_mqtt_sink
+    sink = create_mqtt_sink(data_plane)
+    logger.info("✅ MQTT sink added")
+    return sink
+
+
+def _create_roi_update_sink_factory(config, roi_state, **kwargs):
+    """Factory para ROI update sink (solo adaptive mode)."""
+    if config.ROI_MODE != 'adaptive' or roi_state is None:
+        return None  # Skip
+
+    from ...inference.roi import roi_update_sink
+    sink = partial(roi_update_sink, roi_state=roi_state)
+    logger.info("✅ ROI update sink added (adaptive mode)")
+    return sink
+
+
+def _create_visualization_sink_factory(config, roi_state, inference_handler, **kwargs):
+    """Factory para visualization sink (si habilitado)."""
+    if not config.ENABLE_VISUALIZATION:
+        return None  # Skip
+
+    from ...visualization import create_visualization_sink
+
+    # Window name según estrategia
+    if config.ROI_MODE == 'none':
+        window_name = "Inference Pipeline (Standard)"
+    else:
+        window_name = f"Inference Pipeline ({config.ROI_MODE.capitalize()} ROI)"
+
+    sink = create_visualization_sink(
+        roi_state=roi_state,
+        inference_handler=inference_handler,
+        display_stats=config.DISPLAY_STATISTICS,
+        window_name=window_name,
+    )
+    logger.info(f"✅ Visualization sink added: {window_name}")
+    return sink
 
 
 class SinkFactory:
     """
-    Factory para crear sinks.
+    Factory para crear sinks usando SinkRegistry.
 
-    Responsabilidad:
-    - Crear MQTT sink (siempre)
-    - Crear ROI update sink (solo si adaptive)
-    - Crear visualization sink (si habilitado)
-    - Componer sinks en lista para multi_sink()
+    Diseño: Registry-based
+    - Usa SinkRegistry internamente para desacoplamiento
+    - API backward compatible (create_sinks método estático)
+    - Priority explícito: MQTT(1) → ROI(50) → Viz(100)
 
     Returns:
         Lista de callables para multi_sink()
@@ -40,7 +89,7 @@ class SinkFactory:
         inference_handler=None,
     ) -> List[Callable]:
         """
-        Crea lista de sinks según configuración.
+        Crea lista de sinks según configuración usando registry.
 
         Args:
             config: PipelineConfig
@@ -52,43 +101,36 @@ class SinkFactory:
             Lista de sinks para multi_sink()
 
         Note:
-            Lógica extraída de InferencePipelineController.setup()
-            líneas 214-233.
+            Usa SinkRegistry internamente para desacoplamiento.
+            Factory functions retornan None si sink no aplica.
         """
-        # Imports desde raíz del paquete (adeline/)
-        from ...data import create_mqtt_sink
-        from ...visualization import create_visualization_sink
-        from ...inference.roi import roi_update_sink
+        # Crear registry y registrar sinks con priority
+        registry = SinkRegistry()
 
-        sinks = []
+        registry.register(
+            name='mqtt',
+            factory=_create_mqtt_sink_factory,
+            priority=1  # Primero (stabilization wrappea este)
+        )
 
-        # 1. MQTT sink (siempre presente)
-        mqtt_sink = create_mqtt_sink(data_plane)
-        sinks.append(mqtt_sink)
-        logger.info("✅ MQTT sink added")
+        registry.register(
+            name='roi_update',
+            factory=_create_roi_update_sink_factory,
+            priority=50  # Medio
+        )
 
-        # 2. ROI update sink (solo para adaptive)
-        if config.ROI_MODE == 'adaptive' and roi_state is not None:
-            roi_sink = partial(roi_update_sink, roi_state=roi_state)
-            sinks.append(roi_sink)
-            logger.info("✅ ROI update sink added (adaptive mode)")
+        registry.register(
+            name='visualization',
+            factory=_create_visualization_sink_factory,
+            priority=100  # Último (más lento)
+        )
 
-        # 3. Visualization sink (si habilitado)
-        if config.ENABLE_VISUALIZATION:
-            # Window name según estrategia
-            if config.ROI_MODE == 'none':
-                window_name = "Inference Pipeline (Standard)"
-            else:
-                window_name = f"Inference Pipeline ({config.ROI_MODE.capitalize()} ROI)"
+        # Crear todos los sinks
+        sinks = registry.create_all(
+            config=config,
+            data_plane=data_plane,
+            roi_state=roi_state,
+            inference_handler=inference_handler,
+        )
 
-            viz_sink = create_visualization_sink(
-                roi_state=roi_state,
-                inference_handler=inference_handler,
-                display_stats=config.DISPLAY_STATISTICS,
-                window_name=window_name,
-            )
-            sinks.append(viz_sink)
-            logger.info(f"✅ Visualization sink added: {window_name}")
-
-        logger.info(f"📊 Total sinks created: {len(sinks)}")
         return sinks

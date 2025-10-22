@@ -30,7 +30,7 @@ from collections import defaultdict, deque
 import logging
 import time
 
-from .matching import calculate_iou
+from .matching import calculate_iou, HierarchicalMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +219,9 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         self.persist_conf = persist_conf
         self.iou_threshold = iou_threshold
 
+        # Hierarchical Matcher (Strategy pattern)
+        self.matcher = HierarchicalMatcher(iou_threshold=iou_threshold)
+
         # State: source_id -> class_name -> list of DetectionTrack
         # Usamos defaultdict para facilitar multi-source
         self._tracks: Dict[int, Dict[str, List[DetectionTrack]]] = defaultdict(
@@ -240,7 +243,8 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             f"TemporalHysteresisStabilizer initialized: "
             f"min_frames={min_frames}, max_gap={max_gap}, "
             f"appear_conf={appear_conf:.2f}, persist_conf={persist_conf:.2f}, "
-            f"iou_threshold={iou_threshold:.2f}"
+            f"iou_threshold={iou_threshold:.2f}, "
+            f"matcher_strategies={[s.get_name() for s in self.matcher.strategies]}"
         )
 
     def process(
@@ -267,14 +271,13 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         tracks = self._tracks[source_id]
         stats = self._stats[source_id]
 
-        # Track matching: simple by class_name + proximity
-        # (FASE 1: no usamos IoU, solo class matching)
+        # Track matching usando HierarchicalMatcher (Strategy pattern)
         matched_tracks: Set[Tuple[str, int]] = set()  # (class_name, track_idx)
         stabilized_detections: List[Dict[str, Any]] = []
 
         stats['total_detected'] += len(detections)
 
-        # 1. Match detections to existing tracks
+        # 1. Match detections to existing tracks usando matcher
         for det in detections:
             class_name = det.get('class', 'unknown')
             confidence = det.get('confidence', 0.0)
@@ -285,43 +288,23 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             width = det.get('width', 0.0)
             height = det.get('height', 0.0)
 
-            # Buscar track existente de misma clase usando IoU matching
-            # FASE 2: IoU matching para distinguir múltiples objetos de misma clase
+            # Buscar match usando HierarchicalMatcher
             matched = False
-            best_iou = 0.0
-            best_track_idx = None
-
             if class_name in tracks:
-                # Crear bbox de la detección actual para calcular IoU
-                det_bbox = {
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': height,
-                }
+                # Obtener indices ya matched de esta clase
+                matched_indices = {idx for (cls, idx) in matched_tracks if cls == class_name}
 
-                # Buscar mejor match por IoU entre tracks no matched
-                for idx, track in enumerate(tracks[class_name]):
-                    if (class_name, idx) not in matched_tracks:
-                        # Calcular IoU entre detección y track
-                        track_bbox = {
-                            'x': track.x,
-                            'y': track.y,
-                            'width': track.width,
-                            'height': track.height,
-                        }
-                        iou = calculate_iou(det_bbox, track_bbox)
+                # Usar matcher para encontrar mejor match
+                match_result = self.matcher.find_best_match(
+                    detection=det,
+                    tracks=tracks[class_name],
+                    matched_indices=matched_indices
+                )
 
-                        # Guardar mejor match
-                        if iou > best_iou:
-                            best_iou = iou
-                            best_track_idx = idx
-
-                # Si encontramos match con IoU suficiente
-                if best_track_idx is not None and best_iou >= self.iou_threshold:
-                    matched_tracks.add((class_name, best_track_idx))
+                if match_result is not None:
+                    track, track_idx, match_score, strategy_name = match_result
+                    matched_tracks.add((class_name, track_idx))
                     matched = True
-                    track = tracks[class_name][best_track_idx]
 
                     # Aplicar hysteresis: persist_conf más bajo si ya confirmado
                     threshold = self.persist_conf if track.confirmed else self.appear_conf
@@ -335,7 +318,8 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
                             stats['total_confirmed'] += 1
                             logger.debug(
                                 f"✅ Track confirmed: {class_name} after {track.consecutive_frames} frames "
-                                f"(avg_conf={track.avg_confidence:.2f}, iou={best_iou:.2f})"
+                                f"(avg_conf={track.avg_confidence:.2f}, match_score={match_score:.2f}, "
+                                f"strategy={strategy_name})"
                             )
                     else:
                         # Confianza insuficiente, marcar missed

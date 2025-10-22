@@ -113,17 +113,17 @@ class PipelineBuilder:
         """
         Wrappea primer sink (MQTT) con stabilization si está habilitado.
 
-        Modifica in-place la lista de sinks.
-
         Args:
-            sinks: Lista de sinks (se modifica in-place)
+            sinks: Lista de sinks (NO se modifica)
 
         Returns:
-            Lista de sinks (misma referencia, modificada)
+            NUEVA lista con primer sink wrappeado
 
         Side effects:
             - Setea self.stabilizer si stabilization habilitado
-            - Modifica sinks[0] para wrappear con stabilization
+
+        Note:
+            Functional purity: No modifica input, retorna nuevo array.
         """
         if self.config.STABILIZATION_MODE == 'none':
             logger.info("🔲 Stabilization wrapper: SKIPPED (mode=none)")
@@ -144,11 +144,11 @@ class PipelineBuilder:
             downstream_sink=mqtt_sink,
         )
 
-        # Reemplazar primer sink con versión wrappeada
-        sinks[0] = stabilized_sink
+        # NUEVO array con wrapped sink (immutable operation)
+        new_sinks = [stabilized_sink] + sinks[1:]
 
         logger.info(f"✅ Stabilization wrapper: {self.config.STABILIZATION_MODE.upper()}")
-        return sinks
+        return new_sinks
 
     def build_pipeline(
         self,
