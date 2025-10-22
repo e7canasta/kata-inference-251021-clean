@@ -19,16 +19,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================================
-# DISABLE UNUSED MODELS (BEFORE importing inference)
+# LAZY LOADING INFERENCE (con disable automático)
 # ============================================================================
-# Import and use the function from config module
-from ..config import disable_models_from_config
+# InferenceLoader garantiza que disable_models_from_config() se ejecute
+# ANTES de importar inference (enforced por diseño, no por comentarios)
+from ..inference.loader import InferenceLoader
 
-# Disable models ANTES de imports
-disable_models_from_config()
+# Get inference module (disable automático)
+inference_module = InferenceLoader.get_inference()
+InferencePipeline = inference_module.InferencePipeline
 
-# NOW import inference (warnings should be suppressed)
-from inference import InferencePipeline
+# Otros imports de inference (estos NO necesitan lazy loading)
 from inference.core.interfaces.stream.sinks import multi_sink
 from inference.core.interfaces.camera.entities import StatusUpdate, UpdateSeverity
 from inference.core.interfaces.stream.watchdog import BasePipelineWatchDog
@@ -392,44 +393,51 @@ class InferencePipelineController:
                 logger.error(f"Error deteniendo pipeline: {e}")
     
     def cleanup(self):
-        """Limpia recursos al finalizar"""
+        """
+        Limpia recursos al finalizar (mejorado).
+
+        Cambios respecto a versión anterior:
+        - Timeout aumentado de 3s a 10s para pipeline.join()
+        - Manejo de errores con try/except en todos los disconnects
+        - Eliminado os._exit(0) (deja que Python maneje salida normalmente)
+        """
         logger.info("🧹 Limpiando recursos...")
 
-        # Solo terminar pipeline si aún está corriendo
+        # 1. Terminar pipeline si está corriendo
         if self.pipeline and self.is_running:
             try:
+                logger.info("🛑 Deteniendo pipeline...")
                 self.pipeline.terminate()
                 self.is_running = False
+
+                # Esperar con timeout más largo (10s en lugar de 3s)
+                logger.info("⏳ Esperando threads del pipeline (timeout 10s)...")
+                self.pipeline.join(timeout=10.0)
                 logger.info("✅ Pipeline detenido")
 
-                # Esperar a que los threads del pipeline terminen (con timeout)
-                logger.debug("⏳ Esperando a que terminen los threads del pipeline...")
-                try:
-                    self.pipeline.join(timeout=3.0)
-                    logger.debug("✅ Threads del pipeline terminados")
-                except Exception as e:
-                    logger.warning(f"⚠️ Timeout esperando pipeline.join(): {e}")
             except Exception as e:
                 logger.error(f"❌ Error deteniendo pipeline: {e}")
 
+        # 2. Desconectar Control Plane
         if self.control_plane:
-            self.control_plane.disconnect()
-            logger.info("✅ Control Plane desconectado")
+            try:
+                self.control_plane.disconnect()
+                logger.info("✅ Control Plane desconectado")
+            except Exception as e:
+                logger.error(f"❌ Error desconectando Control Plane: {e}")
 
+        # 3. Desconectar Data Plane
         if self.data_plane:
-            stats = self.data_plane.get_stats()
-            logger.info(f"📊 Data Plane stats: {stats}")
-            self.data_plane.disconnect()
-            logger.info("✅ Data Plane desconectado")
+            try:
+                stats = self.data_plane.get_stats()
+                logger.info(f"📊 Data Plane stats: {stats}")
+                self.data_plane.disconnect()
+                logger.info("✅ Data Plane desconectado")
+            except Exception as e:
+                logger.error(f"❌ Error desconectando Data Plane: {e}")
 
         logger.info("👋 Hasta luego!")
-
-        # Forzar salida inmediata del programa (mata todos los threads)
-        # Usamos os._exit() en lugar de sys.exit() para bypass cleanup de Python
-        # y matar threads non-daemon del pipeline inmediatamente
-        logger.debug("🚪 Saliendo del programa (forzando terminación)...")
-        import os
-        os._exit(0)
+        # Eliminado os._exit(0) - dejamos que Python maneje cleanup normalmente
 
 
 # ============================================================================

@@ -20,7 +20,13 @@ from functools import partial
 from typing import Optional, Tuple, List, Callable
 import logging
 
-from inference import InferencePipeline
+# Lazy loading inference con disable automático
+from ..inference.loader import InferenceLoader
+
+inference_module = InferenceLoader.get_inference()
+InferencePipeline = inference_module.InferencePipeline
+
+# Otros imports de inference
 from inference.core.interfaces.stream.sinks import multi_sink
 from inference.core.interfaces.stream.watchdog import BasePipelineWatchDog
 
