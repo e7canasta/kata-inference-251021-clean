@@ -396,3 +396,83 @@ Antes de hacer un refactor mayor:
 Este manifiesto nació de una sesión de café ☕ y pizarra 🍕, discutiendo cómo atacar complejidad por diseño. No es dogma, es filosofía destilada de experiencia real. Úsenlo como guía, no como ley. Y siempre pregunten a Ernesto si tienen dudas.
 
 ¡Buen código, compañeros! 🚀
+
+
+
+ ✅ Manifiesto Creado - MANIFESTO_DISENO.md
+
+  Ernesto, armé el manifiesto capturando toda nuestra charla de café. ☕
+
+  📋 Contenido del Manifiesto (13 secciones):
+
+  I. Principio Central
+  "Un diseño limpio NO es un diseño complejo"
+
+  II-V. Filosofía Core
+  - Complejidad por Diseño (atacar complejidad real)
+  - Diseño Evolutivo > Especulativo (YAGNI aplicado)
+  - Big Picture siempre primero
+  - KISS ≠ Simplicidad ingenua
+
+  VI-X. Prácticas Concretas
+  - Cohesión > Ubicación (SRP)
+  - Testing como feedback loop
+  - Patterns con propósito (no por CV)
+  - Documentación viva (código + contexto)
+  - Pragmatismo > Purismo
+
+  XI-XII. Evaluación
+  - Métricas de éxito (9.0/10 actual)
+  - Checklist para futuros Claudes
+
+  XIII. Lecciones de Este Refactor
+  - ✅ Lo que funcionó (whiteboard primero, Opción C)
+  - 🔄 Lo que mejoraríamos (property tests inmediatos)
+  - 📈 Impacto (cohesión ⭐⭐⭐⭐⭐, extensibilidad ⭐⭐⭐⭐⭐)
+
+  ---
+  🎯 Highlights del Manifiesto:
+
+  1. Quick Win Strategy
+
+  "Modulariza lo suficiente para habilitar evolución, no para predecirla"
+
+  2. Pregunta clave antes de modularizar
+
+  "¿Este cambio mejora la arquitectura o solo la fragmenta?"
+
+  3. KISS correcto vs incorrecto
+
+  ✅ geometry.py (223L): 1 concepto, cohesión alta
+  ❌ adaptive.py (804L): 3 conceptos mezclados
+
+  4. Testing como señal de diseño
+
+  - 🚨 Tests necesitan muchos mocks → Acoplamiento alto
+  - ✅ Property tests naturales → Bounded context bien definido
+
+  5. Pregunta final
+
+  "¿Este diseño habilita evolución o la predice?"
+
+  Habilitar ✅ | Predecir ❌
+
+  ---
+  📊 Resumen de la Sesión Completa
+
+  Análisis (whiteboard):
+  - ✅ ANALISIS_MODULARIZACION_WHITEBOARD.md - 6 bounded contexts identificados
+  - ✅ Trade-offs evaluados (3 opciones)
+  - ✅ Recomendación: Opción C (Híbrida)
+
+  Implementación (refactor):
+  - ✅ 4 archivos creados (geometry, state, pipeline, init)
+  - ✅ 804 líneas → 919 líneas (3 módulos cohesivos)
+  - ✅ API pública preservada (backward compatible)
+  - ✅ Compilación limpia
+
+  Documentación (manifiesto):
+  - ✅ MANIFESTO_DISENO.md - 13 secciones, filosofía + checklist
+  - ✅ Lecciones aprendidas documentadas
+  - ✅ Guía para futuros Claudes
+

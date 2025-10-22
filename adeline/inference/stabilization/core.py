@@ -30,6 +30,8 @@ from collections import defaultdict, deque
 import logging
 import time
 
+from .matching import calculate_iou
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,63 +114,6 @@ class DetectionTrack:
         if not self.confidences:
             return self.confidence
         return sum(self.confidences) / len(self.confidences)
-
-
-# ============================================================================
-# IoU Matching Utilities
-# ============================================================================
-
-def calculate_iou(bbox1: Dict[str, float], bbox2: Dict[str, float]) -> float:
-    """
-    Calcula Intersection over Union (IoU) entre dos bounding boxes.
-
-    Args:
-        bbox1: {'x': center_x, 'y': center_y, 'width': w, 'height': h} (normalized)
-        bbox2: {'x': center_x, 'y': center_y, 'width': w, 'height': h} (normalized)
-
-    Returns:
-        IoU score [0.0, 1.0]. 0.0 = no overlap, 1.0 = perfect match
-
-    Example:
-        bbox1 = {'x': 0.5, 'y': 0.5, 'width': 0.2, 'height': 0.3}
-        bbox2 = {'x': 0.52, 'y': 0.51, 'width': 0.21, 'height': 0.29}
-        iou = calculate_iou(bbox1, bbox2)  # ~0.85 (high overlap)
-    """
-    # Convertir de formato center+size a xyxy (min/max corners)
-    x1_min = bbox1['x'] - bbox1['width'] / 2
-    y1_min = bbox1['y'] - bbox1['height'] / 2
-    x1_max = bbox1['x'] + bbox1['width'] / 2
-    y1_max = bbox1['y'] + bbox1['height'] / 2
-
-    x2_min = bbox2['x'] - bbox2['width'] / 2
-    y2_min = bbox2['y'] - bbox2['height'] / 2
-    x2_max = bbox2['x'] + bbox2['width'] / 2
-    y2_max = bbox2['y'] + bbox2['height'] / 2
-
-    # Calcular intersección (overlap region)
-    inter_x_min = max(x1_min, x2_min)
-    inter_y_min = max(y1_min, y2_min)
-    inter_x_max = min(x1_max, x2_max)
-    inter_y_max = min(y1_max, y2_max)
-
-    # Si no hay overlap, retornar 0
-    if inter_x_max < inter_x_min or inter_y_max < inter_y_min:
-        return 0.0
-
-    inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
-
-    # Calcular áreas individuales
-    area1 = bbox1['width'] * bbox1['height']
-    area2 = bbox2['width'] * bbox2['height']
-
-    # Union = area1 + area2 - intersection
-    union_area = area1 + area2 - inter_area
-
-    # Evitar división por cero (edge case: bboxes de tamaño 0)
-    if union_area <= 0:
-        return 0.0
-
-    return inter_area / union_area
 
 
 # ============================================================================
