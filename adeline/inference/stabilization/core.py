@@ -115,6 +115,63 @@ class DetectionTrack:
 
 
 # ============================================================================
+# IoU Matching Utilities
+# ============================================================================
+
+def calculate_iou(bbox1: Dict[str, float], bbox2: Dict[str, float]) -> float:
+    """
+    Calcula Intersection over Union (IoU) entre dos bounding boxes.
+
+    Args:
+        bbox1: {'x': center_x, 'y': center_y, 'width': w, 'height': h} (normalized)
+        bbox2: {'x': center_x, 'y': center_y, 'width': w, 'height': h} (normalized)
+
+    Returns:
+        IoU score [0.0, 1.0]. 0.0 = no overlap, 1.0 = perfect match
+
+    Example:
+        bbox1 = {'x': 0.5, 'y': 0.5, 'width': 0.2, 'height': 0.3}
+        bbox2 = {'x': 0.52, 'y': 0.51, 'width': 0.21, 'height': 0.29}
+        iou = calculate_iou(bbox1, bbox2)  # ~0.85 (high overlap)
+    """
+    # Convertir de formato center+size a xyxy (min/max corners)
+    x1_min = bbox1['x'] - bbox1['width'] / 2
+    y1_min = bbox1['y'] - bbox1['height'] / 2
+    x1_max = bbox1['x'] + bbox1['width'] / 2
+    y1_max = bbox1['y'] + bbox1['height'] / 2
+
+    x2_min = bbox2['x'] - bbox2['width'] / 2
+    y2_min = bbox2['y'] - bbox2['height'] / 2
+    x2_max = bbox2['x'] + bbox2['width'] / 2
+    y2_max = bbox2['y'] + bbox2['height'] / 2
+
+    # Calcular intersección (overlap region)
+    inter_x_min = max(x1_min, x2_min)
+    inter_y_min = max(y1_min, y2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_max = min(y1_max, y2_max)
+
+    # Si no hay overlap, retornar 0
+    if inter_x_max < inter_x_min or inter_y_max < inter_y_min:
+        return 0.0
+
+    inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+
+    # Calcular áreas individuales
+    area1 = bbox1['width'] * bbox1['height']
+    area2 = bbox2['width'] * bbox2['height']
+
+    # Union = area1 + area2 - intersection
+    union_area = area1 + area2 - inter_area
+
+    # Evitar división por cero (edge case: bboxes de tamaño 0)
+    if union_area <= 0:
+        return 0.0
+
+    return inter_area / union_area
+
+
+# ============================================================================
 # Base Stabilizer (Abstract)
 # ============================================================================
 
@@ -201,6 +258,7 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         max_gap: int = 2,
         appear_conf: float = 0.5,
         persist_conf: float = 0.3,
+        iou_threshold: float = 0.3,
     ):
         """
         Args:
@@ -208,11 +266,13 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             max_gap: Frames sin detección antes de eliminar track
             appear_conf: Umbral de confianza para nueva detección
             persist_conf: Umbral de confianza para detección confirmada
+            iou_threshold: IoU mínimo para considerar "mismo objeto" (spatial matching)
         """
         self.min_frames = min_frames
         self.max_gap = max_gap
         self.appear_conf = appear_conf
         self.persist_conf = persist_conf
+        self.iou_threshold = iou_threshold
 
         # State: source_id -> class_name -> list of DetectionTrack
         # Usamos defaultdict para facilitar multi-source
@@ -234,7 +294,8 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         logger.info(
             f"TemporalHysteresisStabilizer initialized: "
             f"min_frames={min_frames}, max_gap={max_gap}, "
-            f"appear_conf={appear_conf:.2f}, persist_conf={persist_conf:.2f}"
+            f"appear_conf={appear_conf:.2f}, persist_conf={persist_conf:.2f}, "
+            f"iou_threshold={iou_threshold:.2f}"
         )
 
     def process(
@@ -279,38 +340,61 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             width = det.get('width', 0.0)
             height = det.get('height', 0.0)
 
-            # Buscar track existente de misma clase
-            # FASE 1: matching simple por clase (no espacial)
-            # FASE 2: agregar IoU matching
+            # Buscar track existente de misma clase usando IoU matching
+            # FASE 2: IoU matching para distinguir múltiples objetos de misma clase
             matched = False
+            best_iou = 0.0
+            best_track_idx = None
 
             if class_name in tracks:
+                # Crear bbox de la detección actual para calcular IoU
+                det_bbox = {
+                    'x': x,
+                    'y': y,
+                    'width': width,
+                    'height': height,
+                }
+
+                # Buscar mejor match por IoU entre tracks no matched
                 for idx, track in enumerate(tracks[class_name]):
-                    # Simple matching: misma clase, no matched aún
                     if (class_name, idx) not in matched_tracks:
-                        # Match encontrado
-                        matched_tracks.add((class_name, idx))
-                        matched = True
+                        # Calcular IoU entre detección y track
+                        track_bbox = {
+                            'x': track.x,
+                            'y': track.y,
+                            'width': track.width,
+                            'height': track.height,
+                        }
+                        iou = calculate_iou(det_bbox, track_bbox)
 
-                        # Aplicar hysteresis: persist_conf más bajo si ya confirmado
-                        threshold = self.persist_conf if track.confirmed else self.appear_conf
+                        # Guardar mejor match
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_track_idx = idx
 
-                        if confidence >= threshold:
-                            track.update(confidence, x, y, width, height)
+                # Si encontramos match con IoU suficiente
+                if best_track_idx is not None and best_iou >= self.iou_threshold:
+                    matched_tracks.add((class_name, best_track_idx))
+                    matched = True
+                    track = tracks[class_name][best_track_idx]
 
-                            # Confirmar si alcanzó min_frames
-                            if not track.confirmed and track.consecutive_frames >= self.min_frames:
-                                track.confirmed = True
-                                stats['total_confirmed'] += 1
-                                logger.debug(
-                                    f"✅ Track confirmed: {class_name} after {track.consecutive_frames} frames "
-                                    f"(avg_conf={track.avg_confidence:.2f})"
-                                )
-                        else:
-                            # Confianza insuficiente, marcar missed
-                            track.mark_missed()
+                    # Aplicar hysteresis: persist_conf más bajo si ya confirmado
+                    threshold = self.persist_conf if track.confirmed else self.appear_conf
 
-                        break
+                    if confidence >= threshold:
+                        track.update(confidence, x, y, width, height)
+
+                        # Confirmar si alcanzó min_frames
+                        if not track.confirmed and track.consecutive_frames >= self.min_frames:
+                            track.confirmed = True
+                            stats['total_confirmed'] += 1
+                            logger.debug(
+                                f"✅ Track confirmed: {class_name} after {track.consecutive_frames} frames "
+                                f"(avg_conf={track.avg_confidence:.2f}, iou={best_iou:.2f})"
+                            )
+                    else:
+                        # Confianza insuficiente, marcar missed
+                        track.mark_missed()
 
             # 2. Si no match, crear nuevo track (si supera appear_conf)
             if not matched:
@@ -501,9 +585,10 @@ def create_stabilization_strategy(
             )
 
         logger.info(
-            f"⏱️ Stabilization: TEMPORAL+HYSTERESIS "
+            f"⏱️ Stabilization: TEMPORAL+HYSTERESIS+IoU "
             f"(min_frames={config.temporal_min_frames}, max_gap={config.temporal_max_gap}, "
-            f"appear={config.hysteresis_appear_conf:.2f}, persist={config.hysteresis_persist_conf:.2f})"
+            f"appear={config.hysteresis_appear_conf:.2f}, persist={config.hysteresis_persist_conf:.2f}, "
+            f"iou_threshold={config.iou_threshold:.2f})"
         )
 
         return TemporalHysteresisStabilizer(
@@ -511,6 +596,7 @@ def create_stabilization_strategy(
             max_gap=config.temporal_max_gap,
             appear_conf=config.hysteresis_appear_conf,
             persist_conf=config.hysteresis_persist_conf,
+            iou_threshold=config.iou_threshold,
         )
 
     # Nunca debería llegar aquí

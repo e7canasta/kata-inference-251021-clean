@@ -66,6 +66,7 @@ class StrategyFactory:
             temporal_max_gap=config.STABILIZATION_MAX_GAP,
             hysteresis_appear_conf=config.STABILIZATION_APPEAR_CONF,
             hysteresis_persist_conf=config.STABILIZATION_PERSIST_CONF,
+            iou_threshold=config.STABILIZATION_IOU_THRESHOLD,
         )
 
         # Factory: Crear stabilizer

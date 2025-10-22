@@ -146,6 +146,10 @@ class PipelineConfig:
         self.STABILIZATION_APPEAR_CONF = hysteresis_cfg.get('appear_confidence', 0.5)
         self.STABILIZATION_PERSIST_CONF = hysteresis_cfg.get('persist_confidence', 0.3)
 
+        # IoU matching params (for multi-object tracking)
+        iou_cfg = stabilization_cfg.get('iou', {})
+        self.STABILIZATION_IOU_THRESHOLD = iou_cfg.get('threshold', 0.3)
+
         # ====================================================================
         # ROI Strategy (New unified config structure)
         # ====================================================================
