@@ -561,9 +561,21 @@ stabilizer = StrategyFactory.create_stabilization_strategy(config)
    - If initialization order matters → use loader
    - If commands need validation → use registry
    - If interface matters → use ABC
-6. **Test before committing:**
-   - Compile check: `python -m py_compile <file>`
-   - Manual test per user request
+6. **Testing approach:**
+   - Testing is done manually in pair-programming style (peer review approach)
+   - Compilation verification: `python -m py_compile <file>`
+   - Focus on design to manage complexity rather than extensive automated testing
+7. **Git commits:**
+   - Use "Gaby" as co-author name (from Visiona team), not "Claude"
+   - Author is Ernesto
+   - Format:
+     ```
+     feat: Description
+
+     🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+     Co-Authored-By: Gaby <noreply@visiona.com>
+     ```
 
 **Key files to understand architecture:**
 - `app/controller.py` - Orchestration
