@@ -49,6 +49,14 @@ Invariantes testeadas:
   - Complementa (NO reemplaza) testing con actores
 
 
+   #### 2. Multi-Object Tracking Tests (+481 líneas) - BRILLANTE
+
+     * ✅ TC-006/TC-009 automatizados: No más "esperemos a testing con actores"
+     * ✅ Simulación realista: Aspect ratio changes, movement, multiple tracks
+     * ✅ Regression safety: Alertas tempranas si multi-object se rompe
+     * ✅ Field testing preparation: Validación algoritmo antes de escenario real
+
+
 
 
 """

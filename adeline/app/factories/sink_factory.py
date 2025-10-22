@@ -14,7 +14,7 @@ Filosofía: "Complejidad por diseño"
 - Evolutivo: registry crece si necesitamos más features
 """
 from functools import partial
-from typing import List, Callable, Optional
+from typing import List, Callable, Optional, Any
 import logging
 
 from ..sinks import SinkRegistry
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Sink Factory Functions
 # ============================================================================
 
-def _create_mqtt_sink_factory(config, data_plane, **kwargs):
+def _create_mqtt_sink_factory(config: Any, data_plane: Any, **kwargs) -> Callable:
     """Factory para MQTT sink (siempre presente)."""
     from ...data import create_mqtt_sink
     sink = create_mqtt_sink(data_plane)
@@ -34,7 +34,7 @@ def _create_mqtt_sink_factory(config, data_plane, **kwargs):
     return sink
 
 
-def _create_roi_update_sink_factory(config, roi_state, **kwargs):
+def _create_roi_update_sink_factory(config: Any, roi_state: Any, **kwargs) -> Optional[Callable]:
     """Factory para ROI update sink (solo adaptive mode)."""
     if config.ROI_MODE != 'adaptive' or roi_state is None:
         return None  # Skip
@@ -45,7 +45,7 @@ def _create_roi_update_sink_factory(config, roi_state, **kwargs):
     return sink
 
 
-def _create_visualization_sink_factory(config, roi_state, inference_handler, **kwargs):
+def _create_visualization_sink_factory(config: Any, roi_state: Any, inference_handler: Any, **kwargs) -> Optional[Callable]:
     """Factory para visualization sink (si habilitado)."""
     if not config.ENABLE_VISUALIZATION:
         return None  # Skip
@@ -83,10 +83,10 @@ class SinkFactory:
 
     @staticmethod
     def create_sinks(
-        config,
-        data_plane,
-        roi_state=None,
-        inference_handler=None,
+        config: Any,
+        data_plane: Any,
+        roi_state: Optional[Any] = None,
+        inference_handler: Optional[Any] = None,
     ) -> List[Callable]:
         """
         Crea lista de sinks según configuración usando registry.

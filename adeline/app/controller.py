@@ -37,8 +37,11 @@ from inference.core.interfaces.stream.watchdog import BasePipelineWatchDog
 # Internal imports (new package structure)
 from ..control import MQTTControlPlane
 from ..data import MQTTDataPlane
-from ..config import PipelineConfig
+from ..config import PipelineConfig, AdelineConfig
 from .builder import PipelineBuilder
+
+# Pydantic validation
+from pydantic import ValidationError
 
 # Logger (será configurado en main() con config values)
 logger = logging.getLogger(__name__)
@@ -445,8 +448,33 @@ class InferencePipelineController:
 # ============================================================================
 def main():
     """Punto de entrada principal"""
-    # Cargar configuración
-    config = PipelineConfig()
+    # Cargar configuración con validación Pydantic
+    config_path = "config/adeline/config.yaml"
+
+    try:
+        # Intentar cargar desde YAML con validación
+        if Path(config_path).exists():
+            pydantic_config = AdelineConfig.from_yaml(config_path)
+            print(f"✅ Config loaded and validated from {config_path}")
+        else:
+            # Usar defaults si no existe YAML
+            pydantic_config = AdelineConfig()
+            print(f"⚠️  Config file not found ({config_path}), using defaults")
+
+        # Convertir a legacy config (backward compatibility)
+        config = pydantic_config.to_legacy_config()
+
+    except ValidationError as e:
+        # Fail fast con mensaje claro
+        print(f"❌ Invalid configuration:")
+        for error in e.errors():
+            field = " -> ".join(str(loc) for loc in error['loc'])
+            print(f"   • {field}: {error['msg']}")
+        print(f"\nPlease fix {config_path} and try again.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error loading config: {e}")
+        sys.exit(1)
 
     # Configurar logging basado en config
     logging.basicConfig(
@@ -456,6 +484,7 @@ def main():
 
     global logger
     logger = logging.getLogger(__name__)
+    logger.info("🔧 Adeline Inference Pipeline starting...")
 
     # Reducir verbosidad de paho-mqtt
     logging.getLogger('paho').setLevel(getattr(logging, config.PAHO_LOG_LEVEL.upper()))

@@ -12,7 +12,7 @@ Diseño: Complejidad por diseño
 - Validación delegada a ROI factory (validate_and_create_roi_strategy)
 - Controller solo orquesta, no construye
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 import logging
 
 from ..handlers.base import BaseInferenceHandler
@@ -46,7 +46,7 @@ class InferenceHandlerFactory:
     """
 
     @staticmethod
-    def create(config) -> Tuple[BaseInferenceHandler, Optional[any]]:
+    def create(config: Any) -> Tuple[BaseInferenceHandler, Optional[Any]]:
         """
         Crea inference handler según configuración.
 

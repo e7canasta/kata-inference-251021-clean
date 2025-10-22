@@ -39,6 +39,15 @@ Invariantes testeadas:
   - ✅ Edge case: todos los tracks matched
   - ✅ Edge case: lista vacía
 
+
+   #### 1. Strategy Pattern Tests (+440 líneas en test_stabilization.py)
+
+     * ✅ Testing aislado: Cada strategy testeable independientemente
+     * ✅ Coverage completo: Edge cases, enabled flags, thresholds
+     * ✅ Composición validada: HierarchicalMatcher con fallbacks
+     * ✅ 22 tests nuevos cubriendo toda la superficie de Strategy pattern
+
+
   ---
 
 

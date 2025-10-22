@@ -17,7 +17,7 @@ Diseño: Complejidad por diseño
 - Toda la lógica de construcción centralizada aquí
 """
 from functools import partial
-from typing import Optional, Tuple, List, Callable
+from typing import Optional, Tuple, List, Callable, Any
 import logging
 
 # Lazy loading inference con disable automático
@@ -68,7 +68,7 @@ class PipelineBuilder:
         self.config = config
         self.stabilizer = None  # Se crea en wrap_sinks_with_stabilization()
 
-    def build_inference_handler(self) -> Tuple[BaseInferenceHandler, Optional[any]]:
+    def build_inference_handler(self) -> Tuple[BaseInferenceHandler, Optional[Any]]:
         """
         Construye inference handler según configuración.
 
@@ -84,9 +84,9 @@ class PipelineBuilder:
 
     def build_sinks(
         self,
-        data_plane,
-        roi_state=None,
-        inference_handler=None,
+        data_plane: Any,  # MQTTDataPlane (avoiding circular import)
+        roi_state: Optional[Any] = None,
+        inference_handler: Optional[BaseInferenceHandler] = None,
     ) -> List[Callable]:
         """
         Construye sinks según configuración.

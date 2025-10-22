@@ -11,7 +11,7 @@ Diseño: Complejidad por diseño
 - Factory centraliza decisiones de estrategia
 - Validación delegada a create_stabilization_strategy()
 """
-from typing import Optional
+from typing import Optional, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class StrategyFactory:
     """
 
     @staticmethod
-    def create_stabilization_strategy(config):
+    def create_stabilization_strategy(config: Any) -> Optional[Any]:
         """
         Crea estrategia de stabilization.
 

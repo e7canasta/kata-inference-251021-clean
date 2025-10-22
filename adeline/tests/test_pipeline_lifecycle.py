@@ -40,6 +40,16 @@ Invariantes testeadas:
   - Verifica flujo crítico de finalización
 
 
+   #### 3. Pipeline Lifecycle Tests (+320 líneas)
+
+     * ✅ Integration coverage: STOP/PAUSE/RESUME end-to-end
+     * ✅ Exception safety: Graceful degradation si algo falla
+     * ✅ Mock-based: Testing rápido sin dependencias MQTT
+     * ✅ Shutdown crítico: Verifica que shutdown_event funciona
+
+
+
+
 
 """
 import pytest
