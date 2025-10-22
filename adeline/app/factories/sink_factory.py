@@ -55,9 +55,10 @@ class SinkFactory:
             Lógica extraída de InferencePipelineController.setup()
             líneas 214-233.
         """
-        from ..data import create_mqtt_sink
-        from ..visualization import create_visualization_sink
-        from ..inference.roi import roi_update_sink
+        # Imports desde raíz del paquete (adeline/)
+        from ...data import create_mqtt_sink
+        from ...visualization import create_visualization_sink
+        from ...inference.roi import roi_update_sink
 
         sinks = []
 
