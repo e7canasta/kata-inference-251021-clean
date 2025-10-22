@@ -397,6 +397,27 @@ Este manifiesto nació de una sesión de café ☕ y pizarra 🍕, discutiendo c
 
 ¡Buen código, compañeros! 🚀
 
+---
+
+## 📖 **DOCUMENTACIÓN RELACIONADA**
+
+Este manifiesto es parte de un conjunto de documentos estratégicos:
+
+**📚 Para Futuros AIs:**
+- **[BLUEPRINT_FUTUROS_COPILOTS.md](./BLUEPRINT_FUTUROS_COPILOTS.md)** - Guía estratégica definitiva (¡LEE ESTO PRIMERO!)
+
+**📋 Proceso de Modularización:**  
+- **[ANALISIS_MODULARIZACION_WHITEBOARD.md](./ANALISIS_MODULARIZACION_WHITEBOARD.md)** - Bounded contexts identificados
+- **[RESUMEN_SESION_MODULARIZACION.md](./RESUMEN_SESION_MODULARIZACION.md)** - Tracking completo v2.1
+
+**🔍 Análisis Técnico:**
+- **[ANALISIS_ARQUITECTURA_GABY.md](./ANALISIS_ARQUITECTURA_GABY.md)** - Deep analysis (score 8.5/10)
+- **[PLAN_MEJORAS.md](./PLAN_MEJORAS.md)** - Roadmap y prioridades
+- **[TEST_CASES_FUNCIONALES.md](./TEST_CASES_FUNCIONALES.md)** - Scripts de testing real
+
+**🎯 Score Evolution:**
+- v1.0: 6.5/10 → v2.0: 8.5/10 → v2.1: 9.0/10 → v3.0: 9.5/10 (target)
+
 
 
  ✅ Manifiesto Creado - MANIFESTO_DISENO.md

@@ -9,6 +9,41 @@
 
 ---
 
+
+
+## TEST CASES 
+
+
+  ---
+  🧪 Testing Manual - Escenario Multi-Persona
+
+  Para testear el IoU matching en habitaciones compartidas:
+
+  Escenario de Test
+
+  Setup: Habitación con 2-4 personas (residentes + enfermeros/visitantes)
+
+  Test Cases Críticos:
+
+  1. Personas estáticas (en camas)
+    - Esperado: Cada persona mantiene su propio track ID
+    - Antes (sin IoU): Podían confundirse si desaparecía una persona
+  2. Persona caminando + persona en cama
+    - Esperado: Tracks separados, no se confunden
+    - Antes: Cuando persona A sale, persona B podía "robar" el track de A
+  3. Cruce de personas (enfermero pasa cerca de residente)
+    - Esperado: Tracks se mantienen separados si IoU < 0.3
+    - Crítico: Verificar que no se fusionan tracks cuando se cruzan
+  4. Oclusión parcial
+    - Esperado: Track se mantiene si reaparece dentro de max_gap frames
+    - Verificar que el re-match usa IoU correctamente
+
+
+---
+
+
+
+
 ✅ Implementación completa + documento realista de testing
 
   ---
