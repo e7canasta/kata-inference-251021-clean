@@ -10,6 +10,39 @@ Invariantes testeadas:
 3. Gap tolerance: Tolera max_gap frames sin detección
 4. IoU matching: Distingue objetos de misma clase por posición
 5. NoOp stabilizer: Pass-through sin modificar detecciones
+
+
+
+  1. TestIoUMatchingStrategy (7 tests):
+  - ✅ Diferentes clases → score 0.0
+  - ✅ Misma clase + IoU alto → score alto (>0.9)
+  - ✅ Misma clase + IoU bajo → score bajo
+  - ✅ get_threshold() retorna threshold configurado
+  - ✅ enabled flag funciona (toggle on/off)
+  - ✅ get_name() retorna 'IoUMatchingStrategy'
+
+  2. TestClassOnlyStrategy (5 tests):
+  - ✅ Misma clase → score 1.0
+  - ✅ Diferentes clases → score 0.0
+  - ✅ NO considera posición espacial (score igual lejos/cerca)
+  - ✅ get_threshold() retorna 0.5
+  - ✅ get_name() retorna 'ClassOnlyStrategy'
+
+  3. TestHierarchicalMatcher (10 tests):
+  - ✅ Usa [IoU, ClassOnly] por defecto
+  - ✅ Acepta strategies custom
+  - ✅ IoU gana cuando high overlap
+  - ✅ ClassOnly fallback cuando IoU bajo
+  - ✅ Respeta enabled flag
+  - ✅ No re-match tracks ya matched (matched_indices)
+  - ✅ Retorna None cuando no hay match
+  - ✅ Edge case: todos los tracks matched
+  - ✅ Edge case: lista vacía
+
+  ---
+
+
+
 """
 import pytest
 from inference.stabilization.core import (
@@ -18,6 +51,12 @@ from inference.stabilization.core import (
     calculate_iou,
     StabilizationConfig,
     create_stabilization_strategy,
+    DetectionTrack,
+)
+from inference.stabilization.matching import (
+    IoUMatchingStrategy,
+    ClassOnlyStrategy,
+    HierarchicalMatcher,
 )
 
 
@@ -437,3 +476,440 @@ class TestStabilizationFactory:
             create_stabilization_strategy(config)
 
         assert 'persist' in str(exc_info.value).lower()
+
+
+# ============================================================================
+# Matching Strategies Tests (Strategy Pattern)
+# ============================================================================
+
+@pytest.mark.unit
+@pytest.mark.stabilization
+class TestIoUMatchingStrategy:
+    """Tests para IoUMatchingStrategy (spatial matching)"""
+
+    def test_different_class_returns_zero_score(self):
+        """
+        Invariante: Diferentes clases → score 0.0 (no match).
+        """
+        strategy = IoUMatchingStrategy(threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track con clase diferente
+        track = DetectionTrack(
+            class_name='car',
+            x=0.5, y=0.5,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        score = strategy.calculate_similarity(detection, track)
+
+        assert score == 0.0, "Diferentes clases deben retornar score 0.0"
+
+    def test_same_class_high_iou_returns_high_score(self):
+        """
+        Invariante: Misma clase + IoU alto → score alto.
+        """
+        strategy = IoUMatchingStrategy(threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track en misma posición (IoU ~1.0)
+        track = DetectionTrack(
+            class_name='person',
+            x=0.5, y=0.5,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        score = strategy.calculate_similarity(detection, track)
+
+        assert score > 0.9, f"IoU de bboxes casi idénticos debe ser >0.9, got {score}"
+
+    def test_same_class_low_iou_returns_low_score(self):
+        """
+        Invariante: Misma clase + IoU bajo → score bajo.
+        """
+        strategy = IoUMatchingStrategy(threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.3, 'y': 0.3,  # Left side
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track lejos (right side)
+        track = DetectionTrack(
+            class_name='person',
+            x=0.7, y=0.7,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        score = strategy.calculate_similarity(detection, track)
+
+        # Debe ser muy bajo o cero (no overlap)
+        assert score < 0.1, f"IoU de bboxes separados debe ser <0.1, got {score}"
+
+    def test_get_threshold_returns_configured_threshold(self):
+        """
+        Propiedad: get_threshold() retorna el threshold configurado.
+        """
+        strategy = IoUMatchingStrategy(threshold=0.4)
+        assert strategy.get_threshold() == 0.4
+
+        strategy2 = IoUMatchingStrategy(threshold=0.5)
+        assert strategy2.get_threshold() == 0.5
+
+    def test_enabled_flag_works(self):
+        """
+        Propiedad: enabled flag se puede toggle on/off.
+        """
+        strategy = IoUMatchingStrategy(threshold=0.3)
+
+        # Default enabled
+        assert strategy.enabled is True
+
+        # Toggle off
+        strategy.enabled = False
+        assert strategy.enabled is False
+
+        # Toggle on
+        strategy.enabled = True
+        assert strategy.enabled is True
+
+    def test_get_name_returns_class_name(self):
+        """
+        Propiedad: get_name() retorna nombre de la clase.
+        """
+        strategy = IoUMatchingStrategy(threshold=0.3)
+        assert strategy.get_name() == 'IoUMatchingStrategy'
+
+
+@pytest.mark.unit
+@pytest.mark.stabilization
+class TestClassOnlyStrategy:
+    """Tests para ClassOnlyStrategy (fallback matching)"""
+
+    def test_same_class_returns_one(self):
+        """
+        Invariante: Misma clase → score 1.0 (perfect match).
+        """
+        strategy = ClassOnlyStrategy()
+
+        detection = {
+            'class': 'person',
+            'x': 0.3, 'y': 0.3,
+            'width': 0.2, 'height': 0.2
+        }
+
+        track = DetectionTrack(
+            class_name='person',
+            x=0.7, y=0.7,  # Posición diferente (no importa)
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        score = strategy.calculate_similarity(detection, track)
+
+        assert score == 1.0, "Misma clase debe retornar score 1.0"
+
+    def test_different_class_returns_zero(self):
+        """
+        Invariante: Diferentes clases → score 0.0.
+        """
+        strategy = ClassOnlyStrategy()
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        track = DetectionTrack(
+            class_name='car',
+            x=0.5, y=0.5,  # Misma posición (no importa)
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        score = strategy.calculate_similarity(detection, track)
+
+        assert score == 0.0, "Diferentes clases deben retornar score 0.0"
+
+    def test_ignores_spatial_position(self):
+        """
+        Propiedad: ClassOnlyStrategy NO considera posición espacial.
+        """
+        strategy = ClassOnlyStrategy()
+
+        detection = {
+            'class': 'person',
+            'x': 0.1, 'y': 0.1,
+            'width': 0.1, 'height': 0.1
+        }
+
+        # Track muy lejos
+        track_far = DetectionTrack(
+            class_name='person',
+            x=0.9, y=0.9,
+            width=0.3, height=0.3,
+            confidence=0.8
+        )
+
+        # Track cerca
+        track_near = DetectionTrack(
+            class_name='person',
+            x=0.12, y=0.12,
+            width=0.1, height=0.1,
+            confidence=0.8
+        )
+
+        score_far = strategy.calculate_similarity(detection, track_far)
+        score_near = strategy.calculate_similarity(detection, track_near)
+
+        # Ambos deben ser 1.0 (solo importa clase)
+        assert score_far == score_near == 1.0
+
+    def test_get_threshold_returns_half(self):
+        """
+        Propiedad: ClassOnly threshold es 0.5 (binary matching).
+        """
+        strategy = ClassOnlyStrategy()
+        assert strategy.get_threshold() == 0.5
+
+    def test_get_name_returns_class_name(self):
+        """
+        Propiedad: get_name() retorna nombre de la clase.
+        """
+        strategy = ClassOnlyStrategy()
+        assert strategy.get_name() == 'ClassOnlyStrategy'
+
+
+@pytest.mark.unit
+@pytest.mark.stabilization
+class TestHierarchicalMatcher:
+    """Tests para HierarchicalMatcher (Chain of Responsibility)"""
+
+    def test_uses_default_strategies_when_none_provided(self):
+        """
+        Propiedad: HierarchicalMatcher usa [IoU, ClassOnly] por defecto.
+        """
+        matcher = HierarchicalMatcher()
+
+        assert len(matcher.strategies) == 2
+        assert isinstance(matcher.strategies[0], IoUMatchingStrategy)
+        assert isinstance(matcher.strategies[1], ClassOnlyStrategy)
+
+    def test_uses_custom_strategies_when_provided(self):
+        """
+        Propiedad: Acepta strategies custom en constructor.
+        """
+        custom_iou = IoUMatchingStrategy(threshold=0.5)
+        matcher = HierarchicalMatcher(strategies=[custom_iou])
+
+        assert len(matcher.strategies) == 1
+        assert matcher.strategies[0] is custom_iou
+
+    def test_iou_strategy_wins_when_high_overlap(self):
+        """
+        Invariante: IoU strategy gana cuando hay high overlap.
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track con IoU alto
+        track = DetectionTrack(
+            class_name='person',
+            x=0.51, y=0.51,  # Muy cerca
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        result = matcher.find_best_match(detection, [track], matched_indices=set())
+
+        assert result is not None
+        best_track, idx, score, strategy_name = result
+        assert strategy_name == 'IoUMatchingStrategy'
+        assert score > 0.8  # IoU alto
+
+    def test_classonly_fallback_when_iou_low(self):
+        """
+        Invariante: ClassOnly fallback cuando IoU no encuentra match.
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.2, 'y': 0.2,
+            'width': 0.1, 'height': 0.1
+        }
+
+        # Track lejos (IoU ~0, pero misma clase)
+        track = DetectionTrack(
+            class_name='person',
+            x=0.8, y=0.8,
+            width=0.1, height=0.1,
+            confidence=0.8
+        )
+
+        result = matcher.find_best_match(detection, [track], matched_indices=set())
+
+        assert result is not None
+        best_track, idx, score, strategy_name = result
+        assert strategy_name == 'ClassOnlyStrategy'
+        assert score == 1.0  # ClassOnly score
+
+    def test_respects_enabled_flag(self):
+        """
+        Invariante: Respeta enabled flag (skip strategies desactivadas).
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        # Desactivar IoU strategy
+        matcher.strategies[0].enabled = False
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track con IoU alto (normalmente ganaría IoU)
+        track = DetectionTrack(
+            class_name='person',
+            x=0.51, y=0.51,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        result = matcher.find_best_match(detection, [track], matched_indices=set())
+
+        # Debe usar ClassOnly (IoU desactivado)
+        assert result is not None
+        _, _, _, strategy_name = result
+        assert strategy_name == 'ClassOnlyStrategy'
+
+    def test_skips_already_matched_tracks(self):
+        """
+        Invariante: No re-match tracks ya matched (matched_indices).
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        track1 = DetectionTrack(
+            class_name='person',
+            x=0.5, y=0.5,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        track2 = DetectionTrack(
+            class_name='person',
+            x=0.6, y=0.6,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        # track1 (idx=0) ya matched
+        matched_indices = {0}
+
+        result = matcher.find_best_match(
+            detection,
+            [track1, track2],
+            matched_indices=matched_indices
+        )
+
+        # Debe match con track2 (idx=1), no con track1
+        assert result is not None
+        _, matched_idx, _, _ = result
+        assert matched_idx == 1
+
+    def test_returns_none_when_no_match(self):
+        """
+        Invariante: Retorna None cuando ninguna strategy encuentra match.
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        # Track con clase diferente (no match)
+        track = DetectionTrack(
+            class_name='car',
+            x=0.5, y=0.5,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        result = matcher.find_best_match(detection, [track], matched_indices=set())
+
+        assert result is None, "Debe retornar None cuando no hay match"
+
+    def test_returns_none_when_all_tracks_matched(self):
+        """
+        Edge case: Retorna None cuando todos los tracks ya están matched.
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        track = DetectionTrack(
+            class_name='person',
+            x=0.5, y=0.5,
+            width=0.2, height=0.2,
+            confidence=0.8
+        )
+
+        # Todos los tracks ya matched
+        matched_indices = {0}
+
+        result = matcher.find_best_match(
+            detection,
+            [track],
+            matched_indices=matched_indices
+        )
+
+        assert result is None
+
+    def test_returns_none_when_empty_tracks(self):
+        """
+        Edge case: Retorna None cuando lista de tracks vacía.
+        """
+        matcher = HierarchicalMatcher(iou_threshold=0.3)
+
+        detection = {
+            'class': 'person',
+            'x': 0.5, 'y': 0.5,
+            'width': 0.2, 'height': 0.2
+        }
+
+        result = matcher.find_best_match(detection, [], matched_indices=set())
+
+        assert result is None
