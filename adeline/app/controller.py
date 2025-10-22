@@ -191,25 +191,28 @@ class InferencePipelineController:
 
     def _setup_control_callbacks(self):
         """
-        Configura callbacks del Control Plane.
+        Registra comandos en CommandRegistry del Control Plane.
 
-        Callbacks condicionales basados en capabilities del handler.
+        Comandos condicionales basados en capabilities del handler.
         """
-        # Callbacks básicos (siempre disponibles)
-        self.control_plane.on_stop = self._handle_stop
-        self.control_plane.on_pause = self._handle_pause
-        self.control_plane.on_resume = self._handle_resume
-        self.control_plane.on_metrics = self._handle_metrics
+        registry = self.control_plane.command_registry
 
-        # Callback TOGGLE_CROP solo si handler soporta toggle
+        # Comandos básicos (siempre disponibles)
+        registry.register('pause', self._handle_pause, "Pausa el procesamiento")
+        registry.register('resume', self._handle_resume, "Reanuda el procesamiento")
+        registry.register('stop', self._handle_stop, "Detiene y finaliza el pipeline")
+        registry.register('status', self._handle_status, "Consulta estado actual")
+        registry.register('metrics', self._handle_metrics, "Publica métricas del pipeline")
+
+        # Comando TOGGLE_CROP solo si handler soporta toggle
         if self.inference_handler and self.inference_handler.supports_toggle:
-            self.control_plane.on_toggle_crop = self._handle_toggle_crop
-            logger.info("✅ toggle_crop callback registered (handler supports toggle)")
+            registry.register('toggle_crop', self._handle_toggle_crop, "Toggle adaptive ROI crop")
+            logger.info("✅ toggle_crop command registered (handler supports toggle)")
 
-        # Callback STABILIZATION_STATS solo si stabilization habilitado
+        # Comando STABILIZATION_STATS solo si stabilization habilitado
         if self.stabilizer is not None:
-            self.control_plane.on_stabilization_stats = self._handle_stabilization_stats
-            logger.info("✅ stabilization_stats callback registered")
+            registry.register('stabilization_stats', self._handle_stabilization_stats, "Estadísticas de estabilización")
+            logger.info("✅ stabilization_stats command registered")
     
     def _status_update_handler(self, status: StatusUpdate):
         """Handler para status updates del pipeline"""
@@ -229,6 +232,9 @@ class InferencePipelineController:
             except Exception as e:
                 logger.error(f"❌ Error deteniendo pipeline: {e}")
 
+        # Publicar status
+        self.control_plane.publish_status("stopped")
+
         # Siempre setear shutdown_event para terminar el programa
         logger.info("🛑 Finalizando servicio...")
         self.shutdown_event.set()
@@ -239,6 +245,7 @@ class InferencePipelineController:
         if self.is_running:
             try:
                 self.pipeline.pause_stream()
+                self.control_plane.publish_status("paused")
                 logger.info("✅ Pipeline pausado (usa RESUME para continuar)")
             except Exception as e:
                 logger.error(f"❌ Error pausando pipeline: {e}", exc_info=True)
@@ -251,11 +258,18 @@ class InferencePipelineController:
         if self.is_running:
             try:
                 self.pipeline.resume_stream()
+                self.control_plane.publish_status("running")
                 logger.info("✅ Pipeline resumido")
             except Exception as e:
                 logger.error(f"❌ Error resumiendo pipeline: {e}", exc_info=True)
         else:
             logger.warning("⚠️ Pipeline no está corriendo, no se puede resumir (usa STOP para terminar correctamente)")
+
+    def _handle_status(self):
+        """Callback para comando STATUS - publica estado actual"""
+        logger.info("📋 Comando STATUS recibido")
+        status = "running" if self.is_running else "stopped"
+        self.control_plane.publish_status(status)
 
     def _handle_metrics(self):
         """Callback para comando METRICS - publica métricas del watchdog vía MQTT"""

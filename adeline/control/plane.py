@@ -4,14 +4,21 @@ MQTT Control Plane
 
 Control Plane para InferencePipeline vía MQTT (QoS 1).
 Recibe comandos para controlar el pipeline (pause/resume/stop).
+
+Diseño: Complejidad por diseño
+- Usa CommandRegistry para comandos explícitos
+- No más callbacks opcionales (on_pause, on_stop, etc.)
+- Validación de comandos centralizada en registry
 """
 import json
 import logging
 from datetime import datetime
 from threading import Event
-from typing import Callable, Optional
+from typing import Optional
 
 import paho.mqtt.client as mqtt
+
+from .registry import CommandRegistry, CommandNotAvailableError
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +27,30 @@ class MQTTControlPlane:
     """
     Control Plane para InferencePipeline vía MQTT.
 
-    Recibe comandos:
+    Usa CommandRegistry para comandos explícitos:
+    - Comandos disponibles están registrados en registry
+    - Validación automática de comandos
+    - Mejor UX: error claro si comando no existe
+
+    Comandos típicos:
     - pause: Pausa el pipeline
     - resume: Reanuda el pipeline
     - stop: Detiene el pipeline completamente
     - status: Solicita estado actual
     - metrics: Publica métricas del watchdog vía MQTT
-    - toggle_crop: Activa/desactiva adaptive ROI (solo si está habilitado)
-    - stabilization_stats: Publica estadísticas de detection stabilization
+    - toggle_crop: Activa/desactiva adaptive ROI (solo si handler lo soporta)
+    - stabilization_stats: Estadísticas de detection stabilization (solo si habilitado)
 
     Nota: El pipeline se inicia automáticamente, no hay comando START.
+
+    Usage:
+        control_plane = MQTTControlPlane(...)
+
+        # Registrar comandos disponibles
+        control_plane.command_registry.register('pause', handler.pause, "Pausa el procesamiento")
+        control_plane.command_registry.register('stop', handler.stop, "Detiene el pipeline")
+
+        control_plane.connect()
     """
 
     def __init__(
@@ -48,13 +69,8 @@ class MQTTControlPlane:
         self.status_topic = status_topic
         self.client_id = client_id
 
-        # Callbacks para acciones (sin on_start, pipeline auto-inicia)
-        self.on_stop: Optional[Callable[[], None]] = None
-        self.on_pause: Optional[Callable[[], None]] = None
-        self.on_resume: Optional[Callable[[], None]] = None
-        self.on_metrics: Optional[Callable[[], None]] = None
-        self.on_toggle_crop: Optional[Callable[[], None]] = None  # Para adaptive ROI
-        self.on_stabilization_stats: Optional[Callable[[], None]] = None  # Para detection stabilization
+        # CommandRegistry (nuevo - reemplaza callbacks opcionales)
+        self.command_registry = CommandRegistry()
 
         # MQTT Client
         self.client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv5)
@@ -66,7 +82,7 @@ class MQTTControlPlane:
         self.client.on_disconnect = self._on_disconnect
 
         self._connected = Event()
-        self._running = False
+        self._running = False  # Tracked for status updates
 
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         """Callback cuando se conecta al broker"""
@@ -75,7 +91,7 @@ class MQTTControlPlane:
             self.client.subscribe(self.command_topic, qos=1)
             logger.info(f"📡 Suscrito a: {self.command_topic}")
             self._connected.set()
-            self._publish_status("connected")
+            self.publish_status("connected")
         else:
             logger.error(f"❌ Error conectando al broker MQTT: {rc}")
 
@@ -85,7 +101,12 @@ class MQTTControlPlane:
         self._connected.clear()
 
     def _on_message(self, client, userdata, msg):
-        """Callback cuando recibe un mensaje"""
+        """
+        Callback cuando recibe un mensaje MQTT.
+
+        Usa CommandRegistry para ejecutar comandos.
+        No más callbacks opcionales - todo via registry.
+        """
         logger.debug(f"🔔 Mensaje MQTT recibido en topic: {msg.topic}")
         try:
             payload = msg.payload.decode('utf-8')
@@ -95,91 +116,29 @@ class MQTTControlPlane:
 
             logger.info(f"📥 Comando recibido: {command}")
 
-            if command == 'pause':
-                logger.debug("📝 Procesando comando PAUSE")
-                if self.on_pause:
-                    try:
-                        self.on_pause()
-                        self._publish_status("paused")
-                        logger.debug("✅ Comando PAUSE procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_pause: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_pause callback no configurado")
+            # Ejecutar comando vía registry
+            try:
+                self.command_registry.execute(command)
+                logger.debug(f"✅ Comando '{command}' ejecutado correctamente")
 
-            elif command == 'resume':
-                logger.debug("📝 Procesando comando RESUME")
-                if self.on_resume:
-                    try:
-                        self.on_resume()
-                        self._publish_status("running")
-                        logger.debug("✅ Comando RESUME procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_resume: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_resume callback no configurado")
-
-            elif command == 'stop':
-                logger.debug("📝 Procesando comando STOP")
-                if self.on_stop:
-                    try:
-                        self.on_stop()
-                        self._publish_status("stopped")
-                        logger.debug("✅ Comando STOP procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_stop: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_stop callback no configurado")
-
-            elif command == 'status':
-                logger.debug("📝 Procesando comando STATUS")
-                self._publish_status("running" if self._running else "stopped")
-
-            elif command == 'metrics':
-                logger.debug("📝 Procesando comando METRICS")
-                if self.on_metrics:
-                    try:
-                        self.on_metrics()
-                        logger.debug("✅ Comando METRICS procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_metrics: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_metrics callback no configurado")
-
-            elif command == 'toggle_crop':
-                logger.debug("📝 Procesando comando TOGGLE_CROP")
-                if self.on_toggle_crop:
-                    try:
-                        self.on_toggle_crop()
-                        logger.debug("✅ Comando TOGGLE_CROP procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_toggle_crop: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_toggle_crop callback no configurado (requiere adaptive_crop.enabled: true)")
-
-            elif command == 'stabilization_stats':
-                logger.debug("📝 Procesando comando STABILIZATION_STATS")
-                if self.on_stabilization_stats:
-                    try:
-                        self.on_stabilization_stats()
-                        logger.debug("✅ Comando STABILIZATION_STATS procesado")
-                    except Exception as e:
-                        logger.error(f"❌ Error en callback on_stabilization_stats: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ on_stabilization_stats callback no configurado (requiere detection_stabilization.mode != 'none')")
-
-            else:
-                logger.warning(f"⚠️ Comando desconocido: {command}")
-
-            logger.debug(f"✅ Callback _on_message completado para comando: {command}")
+            except CommandNotAvailableError as e:
+                logger.warning(f"⚠️ {e}")
+                # Listar comandos disponibles para ayudar al usuario
+                available = ', '.join(sorted(self.command_registry.available_commands))
+                logger.info(f"💡 Comandos disponibles: {available}")
 
         except json.JSONDecodeError:
             logger.error(f"❌ Error decodificando JSON: {msg.payload}")
         except Exception as e:
-            logger.error(f"❌ Error procesando mensaje: {e}")
+            logger.error(f"❌ Error procesando mensaje: {e}", exc_info=True)
 
-    def _publish_status(self, status: str):
-        """Publica el estado actual"""
+    def publish_status(self, status: str):
+        """
+        Publica el estado actual (público para uso desde handlers).
+
+        Args:
+            status: Estado a publicar (ej: "paused", "running", "stopped")
+        """
         message = {
             "status": status,
             "timestamp": datetime.now().isoformat(),
@@ -207,6 +166,6 @@ class MQTTControlPlane:
     def disconnect(self):
         """Desconecta del broker MQTT"""
         logger.info("🔌 Desconectando Control Plane...")
-        self._publish_status("disconnected")
+        self.publish_status("disconnected")
         self.client.loop_stop()
         self.client.disconnect()
