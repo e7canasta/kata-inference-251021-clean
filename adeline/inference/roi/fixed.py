@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Dict
 import logging
 
 from .adaptive import ROIBox, adaptive_roi_inference
+from ..handlers.base import BaseInferenceHandler
 
 logger = logging.getLogger(__name__)
 
@@ -133,14 +134,28 @@ class FixedROIState:
         }
 
 
-class FixedROIInferenceHandler:
+class FixedROIInferenceHandler(BaseInferenceHandler):
     """
     Wrapper callable para inferencia con ROI fijo.
 
     Reutiliza adaptive_roi_inference() pero con FixedROIState.
     KISS: No necesita toggle dinámico (fixed es inmutable).
 
-    Compatible con AdaptiveInferenceHandler interface para uniformidad.
+    Hereda de BaseInferenceHandler para garantizar interface consistente.
+
+    Properties:
+    - enabled: Siempre True (inmutable)
+    - supports_toggle: False (no soporta toggle)
+
+    Usage:
+        handler = FixedROIInferenceHandler(model, config, roi_state)
+        pipeline = InferencePipeline.init_with_custom_logic(
+            on_video_frame=handler,
+            ...
+        )
+
+        # Fixed ROI NO soporta toggle
+        # handler.disable() → NotImplementedError
     """
 
     def __init__(
@@ -155,8 +170,17 @@ class FixedROIInferenceHandler:
         self.inference_config = inference_config
         self.roi_state = roi_state
         self.process_frame_fn = process_frame_fn
-        self.enabled = True  # Fixed siempre enabled (no toggle necesario)
         self.show_statistics = show_statistics
+
+    @property
+    def enabled(self) -> bool:
+        """Fixed ROI siempre habilitado (inmutable)."""
+        return True
+
+    @property
+    def supports_toggle(self) -> bool:
+        """Fixed ROI NO soporta toggle (inmutable)."""
+        return False
 
     def __call__(self, video_frames):
         """Callable interface para InferencePipeline"""
@@ -166,7 +190,7 @@ class FixedROIInferenceHandler:
             model=self.model,
             inference_config=self.inference_config,
             roi_state=self.roi_state,
-            enable_crop=self.enabled,
+            enable_crop=True,  # Fixed siempre enabled
             process_frame_fn=self.process_frame_fn,
             show_statistics=self.show_statistics,
         )

@@ -35,6 +35,8 @@ import numpy as np
 import supervision as sv
 from inference.core.interfaces.camera.entities import VideoFrame
 
+from ..handlers.base import BaseInferenceHandler
+
 logger = logging.getLogger(__name__)
 
 # Track sources que ya mostraron log de resize (para no spamear logs)
@@ -722,13 +724,23 @@ def roi_update_sink(
 # Adaptive Inference Handler (Mutable for MQTT Toggle)
 # ============================================================================
 
-class AdaptiveInferenceHandler:
+class AdaptiveInferenceHandler(BaseInferenceHandler):
     """
     Wrapper callable para adaptive_roi_inference que permite toggle dinámico.
 
     Este wrapper es necesario porque InferencePipeline.init_with_custom_logic()
     espera un callable, pero necesitamos poder cambiar el flag 'enabled' en runtime
     (vía MQTT command).
+
+    Hereda de BaseInferenceHandler para garantizar interface consistente.
+
+    Properties:
+    - enabled: Si ROI adaptativo está habilitado (getter/setter)
+    - supports_toggle: True (soporta enable/disable dinámico)
+
+    Methods:
+    - enable(): Habilita ROI adaptativo
+    - disable(): Deshabilita ROI y resetea state
 
     Usage:
         handler = AdaptiveInferenceHandler(model, config, roi_state)
@@ -738,7 +750,8 @@ class AdaptiveInferenceHandler:
         )
 
         # Luego, desde MQTT callback:
-        handler.enabled = False  # Disable crop dinámicamente
+        handler.disable()  # Disable crop dinámicamente
+        handler.enable()   # Re-enable
     """
 
     def __init__(
@@ -753,8 +766,29 @@ class AdaptiveInferenceHandler:
         self.inference_config = inference_config
         self.roi_state = roi_state
         self.process_frame_fn = process_frame_fn
-        self.enabled = True  # Mutable flag
+        self._enabled = True  # Internal mutable flag
         self.show_statistics = show_statistics  # Performance optimization flag
+
+    @property
+    def enabled(self) -> bool:
+        """Si adaptive ROI está habilitado."""
+        return self._enabled
+
+    @property
+    def supports_toggle(self) -> bool:
+        """Adaptive ROI soporta toggle dinámico."""
+        return True
+
+    def enable(self):
+        """Habilita adaptive ROI."""
+        self._enabled = True
+        logger.info("✅ Adaptive ROI enabled")
+
+    def disable(self):
+        """Deshabilita adaptive ROI y resetea state a full frame."""
+        self._enabled = False
+        self.roi_state.reset()
+        logger.info("🔲 Adaptive ROI disabled (reset to full frame)")
 
     def __call__(self, video_frames: List[VideoFrame]) -> List[dict]:
         """Callable interface para InferencePipeline"""
@@ -763,7 +797,7 @@ class AdaptiveInferenceHandler:
             model=self.model,
             inference_config=self.inference_config,
             roi_state=self.roi_state,
-            enable_crop=self.enabled,  # Lee el flag actual
+            enable_crop=self._enabled,  # Lee el flag interno
             process_frame_fn=self.process_frame_fn,
             show_statistics=self.show_statistics,  # Control metrics computation
         )
