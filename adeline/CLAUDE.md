@@ -2,584 +2,179 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
-
-## Running the Application
-
-```bash
-# Main inference pipeline
-python -m adeline
-
-# Control CLI (send MQTT commands)
-python -m adeline.control.cli pause
-python -m adeline.control.cli resume
-python -m adeline.control.cli stop
-python -m adeline.control.cli toggle_crop    # Only if ROI mode = adaptive
-python -m adeline.control.cli stabilization_stats
-
-# MQTT data monitors
-python -m adeline.data.monitors data      # Detections monitor
-python -m adeline.data.monitors status    # Status monitor
-```
-
-**Entry point:** `__main__.py` → `app/controller.py:main()`
-
----
-
 ## Project Overview
 
-**Adeline** is a real-time computer vision inference pipeline (YOLO-based) with MQTT remote control capabilities. Designed for edge deployment with configurable ROI strategies and detection stabilization.
+**Adeline** - Computer vision inference pipeline (YOLO) with MQTT remote control for fall detection in geriatric residences. Supports multi-person tracking (1-4 residents per room) with adaptive ROI and detection stabilization.
 
-**Core Philosophy:** **"Complejidad por Diseño"** - Attack complexity through architecture, not complicated code.
+## Development Commands
 
-**Current Version:** v2.0 (post-refactoring FASES 1-7)
-**Architecture Score:** 8.5/10 (see `ANALISIS_ARQUITECTURA_GABY.md` for detailed assessment)
+### Running the Application
+```bash
+# Run main pipeline
+python -m adeline
 
----
-
-## Big Picture: System Architecture
-
-### Control/Data Plane Separation ⭐
-
-**The most important architectural decision** - separates reliability from performance.
-
-```
-┌──────────────────┐              ┌──────────────────┐
-│  Control Plane   │              │   Data Plane     │
-│  (QoS 1 - ACK)   │              │  (QoS 0 - fast)  │
-└────────┬─────────┘              └────────┬─────────┘
-         │                                  │
-         ├─ Commands (~1 msg/min)          ├─ Detections (~120 msg/min @ 2fps)
-         ├─ STOP/PAUSE/RESUME              ├─ Inference results
-         ├─ TOGGLE_CROP                    ├─ ROI metrics
-         └─ CommandRegistry                └─ Pipeline metrics
-              ↓                                  ↓
-         ┌─────────────────────────────────────────┐
-         │      InferencePipelineController        │
-         │      (Orchestration + Lifecycle)        │
-         └──────────────┬──────────────────────────┘
-                        │
-         ┌──────────────┴──────────────┐
-         │      PipelineBuilder        │
-         │  (Construction via Factories)│
-         └──────────────┬──────────────┘
-                        │
-         ┌──────────────┴──────────────┐
-         │     InferencePipeline       │
-         │  ┌─────────────────────┐    │
-         │  │ BaseInferenceHandler │   │
-         │  │  ├─ Adaptive         │   │
-         │  │  ├─ Fixed            │   │
-         │  │  └─ Standard         │   │
-         │  └─────────────────────┘    │
-         │                              │
-         │  ┌─────────────────────┐    │
-         │  │ Multi-Sink           │   │
-         │  │  ├─ MQTT (stabilized)│   │
-         │  │  ├─ Visualization    │   │
-         │  │  └─ ROI Update       │   │
-         │  └─────────────────────┘    │
-         └──────────────────────────────┘
+# Entry point expects config at: config/adeline/config.yaml
 ```
 
-**Why this works:**
-- Control must be reliable (STOP command can't be lost) → QoS 1
-- Data must be performant (inference @ 2fps, 120+ msgs/min) → QoS 0
-- **Graceful degradation:** If Data Plane saturates, Control still works
-- **Independent scaling:** Can optimize each plane separately
+### Testing
+```bash
+# Run all tests
+pytest
 
-**Reference:** `control/plane.py`, `data/plane.py`
+# Run specific test file
+pytest tests/test_roi.py
 
----
+# Run tests by marker
+pytest -m unit          # Fast, isolated tests
+pytest -m integration   # May require external resources
+pytest -m roi           # ROI-related tests
+pytest -m mqtt          # MQTT-related tests
+pytest -m stabilization # Stabilization tests
 
-## Key Design Patterns
+# Skip slow tests
+pytest -m "not slow"
+```
 
-### 1. Factory Pattern (Strategy Creation)
+### Type Checking
+```bash
+# Run mypy type checking
+mypy .
 
-All strategies (ROI, Stabilization, Handlers) are created through factories with centralized validation.
+# Critical files have strict typing enabled (see mypy.ini):
+# - config/schemas.py (full type coverage)
+# - inference/roi/adaptive.py
+# - inference/stabilization/core.py
+# - control/registry.py
+```
 
+### Validation
+```bash
+# Syntax validation (before commits)
+./scripts/validate.sh
+```
+
+## Architecture Overview
+
+### Design Philosophy
+- **Complejidad por diseño, no por accidente** - Attack complexity through architecture, not complicated code
+- **Fail Fast** - Pydantic validation at load time, not runtime
+- **Registry Pattern** - Explicit command registration (no optional callbacks)
+- **Builder Pattern** - Separation of construction from orchestration
+- **Strategy Pattern** - ROI modes (none/fixed/adaptive), Stabilization modes (none/spatial_iou)
+
+### Core Architecture (Separation of Concerns)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ app/controller.py - InferencePipelineController         │
+│ Orchestration & Lifecycle Management                    │
+│ (Setup, start/stop/pause/resume, signal handling)       │
+└────────────┬────────────────────────────────────────────┘
+             │ delegates construction to
+             ▼
+┌─────────────────────────────────────────────────────────┐
+│ app/builder.py - PipelineBuilder                        │
+│ Builder Pattern - Constructs all components             │
+│ (Orchestrates factories, builds sinks, wraps stability) │
+└────────────┬────────────────────────────────────────────┘
+             │ uses
+             ▼
+┌─────────────────────────────────────────────────────────┐
+│ Factories (Strategy Pattern)                            │
+│ - inference/factories/handler_factory.py                │
+│ - inference/factories/strategy_factory.py               │
+│ - app/factories/sink_factory.py                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### MQTT Architecture (Dual Plane)
+
+**Control Plane** (control/plane.py - QoS 1):
+- Receives commands to control pipeline (pause/resume/stop/status/metrics)
+- Uses `CommandRegistry` for explicit command registration
+- Commands are registered conditionally based on capabilities:
+  - `toggle_crop` only if handler.supports_toggle
+  - `stabilization_stats` only if STABILIZATION_MODE != 'none'
+
+**Data Plane** (data/sinks.py - QoS 0):
+- Publishes inference results via MQTT
+- Low latency, best-effort delivery
+
+### Inference Handler Architecture
+
+**Strategy Pattern for ROI Modes** (app/controller.py:130):
 ```python
-# inference/factories/handler_factory.py
-handler, roi_state = InferenceHandlerFactory.create(config)
-# Returns: StandardHandler | AdaptiveHandler | FixedHandler
-
-# inference/factories/strategy_factory.py
-stabilizer = StrategyFactory.create_stabilization_strategy(config)
-# Returns: NoOpStabilizer | TemporalHysteresisStabilizer
+# Factory creates handler based on config.ROI_MODE
+handler, roi_state = builder.build_inference_handler()
+# Returns: StandardInferenceHandler or subclass
+#   - ROI_MODE='none': No ROI
+#   - ROI_MODE='fixed': FixedROIHandler with static crop
+#   - ROI_MODE='adaptive': AdaptiveROIHandler with dynamic tracking
 ```
 
-**Benefit:** Easy to extend (add new strategy without modifying existing code)
-
-**Reference:** `inference/factories/`, `roi/base.py`
-
----
-
-### 2. Builder Pattern (Pipeline Construction)
-
-Separates construction complexity from orchestration logic.
-
-```python
-# app/builder.py
-builder = PipelineBuilder(config)
-
-# Builder orchestrates factories
-handler, roi_state = builder.build_inference_handler()  # → Factory
-sinks = builder.build_sinks(...)                        # → Factory
-if stabilization_enabled:
-    sinks = builder.wrap_sinks_with_stabilization(...)  # → Decorator
-
-pipeline = builder.build_pipeline(...)
-```
-
-**Benefit:** Controller only orchestrates lifecycle, doesn't construct components
-
-**Reference:** `app/builder.py`, `app/controller.py`
-
----
-
-### 3. Command Registry Pattern (Control Plane)
-
-Explicit command registration - only available commands are registered.
-
-```python
-# control/registry.py
-registry = CommandRegistry()
-
-# Basic commands (always available)
-registry.register('pause', handler, "Pausa el procesamiento")
-registry.register('stop', handler, "Detiene el pipeline")
-
-# Conditional commands
-if handler.supports_toggle:
-    registry.register('toggle_crop', handler, "Toggle ROI")
-
-# Validation
-try:
-    registry.execute('unknown_command')
-except CommandNotAvailableError:
-    # Clear error message with available commands
-```
-
-**Benefit:** Commands are discoverable, validated, and explicit (no silent failures)
-
-**Reference:** `control/registry.py`, `control/plane.py`
-
----
-
-### 4. Publisher Pattern (Data Plane)
-
-Separates MQTT infrastructure from business logic (message formatting).
-
-```python
-# data/plane.py (infrastructure)
-class MQTTDataPlane:
-    def __init__(self):
-        self.detection_publisher = DetectionPublisher()  # Business logic
-        self.metrics_publisher = MetricsPublisher()
-
-    def publish_inference(self, predictions, video_frame):
-        message = self.detection_publisher.format_message(...)  # Delegate
-        self.client.publish(topic, json.dumps(message))  # Infrastructure
-```
-
-**Benefit:** Easy to change message format without touching MQTT code
-
-**Reference:** `data/plane.py`, `data/publishers/`
-
----
-
-### 5. InferenceLoader Pattern (Initialization Order Enforcement)
-
-Guarantees models are disabled BEFORE importing `inference` module (prevents warnings).
-
-```python
-# inference/loader.py - Enforces initialization order BY DESIGN
-from ..inference.loader import InferenceLoader
-inference = InferenceLoader.get_inference()  # Auto-disables models first
-InferencePipeline = inference.InferencePipeline
-```
-
-**Before (fragile):** Manual `disable_models_from_config()` call - easy to forget
-**After (enforced):** Loader guarantees order - can't import without disabling
-
-**Reference:** `inference/loader.py`
-
----
-
-## ROI Strategy System
-
-Three modes (config-driven):
-
-### 1. `none` - Standard Pipeline
-- No ROI, full frame inference
-- Uses `InferencePipeline.init()` (model_id based)
-- Handler: `StandardInferenceHandler`
-
-### 2. `adaptive` - Dynamic ROI
-- ROI adjusts based on detections
-- Uses `InferencePipeline.init_with_custom_logic()`
-- Handler: `AdaptiveInferenceHandler`
-- **Performance optimization:**
-  - ROI is always **square** (no distortion)
-  - Size in **multiples of imgsz** (clean resize: 640→320 = 2x)
-  - NumPy views for zero-copy crop
-  - Vectorized coordinate transforms (~20x faster than loops)
-- **Toggle support:** `{"command": "toggle_crop"}` via MQTT
-
-### 3. `fixed` - Static ROI
-- Fixed region defined by normalized coordinates
-- Uses `InferencePipeline.init_with_custom_logic()`
-- Handler: `FixedROIInferenceHandler`
-- **No toggle support** (immutable)
-
-**Configuration:**
-```yaml
-roi_strategy:
-  mode: adaptive  # none | adaptive | fixed
-  adaptive:
-    margin: 0.2
-    smoothing: 0.3
-    min_roi_multiple: 1
-    max_roi_multiple: 4
-```
-
-**Reference:** `inference/roi/`, `inference/factories/handler_factory.py`
-
----
-
-## Detection Stabilization
-
-Reduces flickering/false positives by requiring temporal consistency.
-
-### Modes
-
-**1. `none`** - No filtering (baseline)
-**2. `temporal`** - Temporal + Hysteresis filtering
-
-**Strategy (temporal mode):**
-```
-Frame 1: person 0.45 → IGNORE (< 0.5 appear_threshold)
-Frame 2: person 0.52 → TRACKING (frames=1/3)
-Frame 3: person 0.48 → TRACKING (>= 0.3 persist_threshold, frames=2/3)
-Frame 4: person 0.51 → CONFIRMED! Emit detection
-Frame 5: (no detection) → GAP 1/2 (tolerate)
-Frame 6: (no detection) → REMOVED (gap > max_gap)
-```
-
-**Hysteresis:**
-- **High threshold to appear** (0.5) - strict for new detections
-- **Low threshold to persist** (0.3) - relaxed for confirmed tracks
-- Reduces flicker without losing tracking
-
-**Configuration:**
-```yaml
-detection_stabilization:
-  mode: temporal
-  temporal:
-    min_frames: 3
-    max_gap: 2
-  hysteresis:
-    appear_confidence: 0.5
-    persist_confidence: 0.3
-```
-
-**⚠️ Known Limitation:** Simple matching (by class only, no IoU)
-- Works well for single-object scenarios
-- May confuse tracks with multiple objects of same class
-- **Improvement planned:** IoU matching (see `PLAN_MEJORAS.md`)
-
-**Reference:** `inference/stabilization/core.py`
-
----
-
-## Configuration System
-
-**Hierarchy:**
-- Sensitive data (API keys, MQTT creds) → `.env` file
-- Application settings → `config/adeline/config.yaml`
-- Models disabled → `models_disabled.disabled` array in config
-
-**Loading:**
-```python
-# config.py
-config = PipelineConfig()  # Loads YAML + .env
-
-# CRITICAL: Model disabling happens in InferenceLoader (automatic)
-# You don't need to call disable_models_from_config() manually
-```
-
-**Reference:** `config.py`, `inference/loader.py`
-
----
-
-## Extension Points
-
-### Add New ROI Strategy
-
-1. Create handler in `inference/roi/`
-2. Inherit from `BaseInferenceHandler` (ABC)
-3. Add case in `InferenceHandlerFactory.create()`
-4. Add config schema in `config.yaml`
-
-### Add New MQTT Command
-
-1. Create handler method in `controller.py`
-2. Register in `_setup_control_callbacks()`:
-   ```python
-   registry.register('my_command', self._handle_my_command, "Description")
-   ```
-3. Command auto-validated by `CommandRegistry`
-
-### Add New Sink
-
-1. Create sink function: `def my_sink(predictions, video_frames)`
-2. Add to `SinkFactory.create_sinks()`
-3. Configure in `config.yaml` if needed
-
-### Add New Stabilization Strategy
-
-1. Inherit from `BaseDetectionStabilizer`
-2. Implement `process()`, `reset()`, `get_stats()`
-3. Add case in `StrategyFactory.create_stabilization_strategy()`
-4. Add config schema
-
-**Reference:** `ANALISIS_ARQUITECTURA_GABY.md` (section 5 - Extension examples)
-
----
-
-## Performance Optimizations
-
-### NumPy Vectorization
-```python
-# adaptive.py - ~20x faster than Python loops
-xs = np.array([d['x'] for d in detections])
-xyxy[:, 0] = xs - ws / 2  # Vectorized operation
-```
-
-### Zero-Copy Crop
-```python
-# adaptive.py - NumPy view, no memory copy
-cropped = video_frame.image[roi.y1:roi.y2, roi.x1:roi.x2]
-```
-
-### ROI Square Multiples
-```python
-# adaptive.py - Clean resize (640→320 = 2x, no weird interpolation)
-square_size = rounded_multiple * imgsz  # Always multiple of model size
-```
-
-**Reference:** `inference/roi/adaptive.py`
-
----
+**Handler Capabilities** (inference/handlers/base.py):
+- `supports_toggle`: Whether handler supports enable/disable dynamically
+- Used for conditional MQTT command registration
+
+### Detection Stabilization (v2.1)
+
+**IoU-based Multi-Object Tracking** (inference/stabilization/core.py):
+- Tracks 2-4 persons using IoU spatial matching
+- `STABILIZATION_MODE='spatial_iou'`: IoU matching + temporal consistency
+- `STABILIZATION_MODE='none'`: Direct detections (no tracking)
+- Prevents track ID confusion when people enter/exit frame
+- Config: `STABILIZATION_IOU_THRESHOLD` (default 0.3)
+
+### Configuration System
+
+**Pydantic v2 Validation** (config/schemas.py):
+- Type-safe configuration with load-time validation (fail fast)
+- `AdelineConfig.from_yaml()` validates config on load
+- Backward compatibility via `to_legacy_config()`
+- Strict validation on critical modules (see mypy.ini)
+
+### Lazy Loading Pattern
+
+**Inference Disable Strategy** (inference/loader.py):
+- `InferenceLoader.get_inference()` ensures `disable_models_from_config()` runs BEFORE importing inference
+- Prevents unnecessary model downloads
+- Enforced by design (not by comments)
+
+## Key Design Patterns in Use
+
+1. **CommandRegistry** (control/registry.py): Explicit command registration, no optional callbacks
+2. **Builder Pattern** (app/builder.py): Separates construction logic from controller
+3. **Strategy Pattern** (inference/factories): ROI modes, stabilization strategies
+4. **Factory Pattern** (inference/factories): Creates handlers/strategies based on config
+5. **Sink Pattern** (data/sinks.py): Pipeline output handlers (MQTT, visualization)
 
 ## Testing Strategy
 
-**Current approach:** Manual testing in pair-programming style + Field testing
+Manual testing with actors for field validation (see TEST_CASES_FUNCIONALES.md):
+- Multi-person tracking scenarios (1-4 people)
+- Track stability across occlusions and crossings
+- IoU matching validation in shared rooms
 
-**Philosophy:**
-- Focus on design to manage complexity (not extensive testing)
-- Compilation checks: `python -m py_compile <file>`
-- Manual integration testing for critical paths
-- Peer review approach
+120+ unit/integration tests across 7 test files covering:
+- ROI strategies (adaptive, fixed)
+- MQTT commands (pause/resume/stop/toggle_crop)
+- Config validation (Pydantic)
+- Multi-object tracking
+- Pipeline lifecycle
+- Stabilization logic
 
-**Testing Documents:**
-- `TEST_CASES_FUNCIONALES.md` - Field testing scripts for actors (12 scenarios)
-  - Focus: Multi-object tracking in shared rooms (2-4 residents)
-  - Format: Production-style scripts for real-world validation
-  - Critical: TC-006 (2 people), TC-009 (4 people) - Fall detection accuracy
+## Important Configuration Files
 
-**Planned improvements** (see `PLAN_MEJORAS.md`):
-- Property-based tests for invariants (ROI square, expand preserves shape)
-- Critical path tests (MQTT commands, pipeline lifecycle)
-- Incremental, not blocking feature development
+- `config/adeline/config.yaml` - Main configuration (Pydantic validated)
+- `pytest.ini` - Test markers and configuration
+- `mypy.ini` - Type checking with gradual typing approach
+- `.env` - Environment variables (MQTT credentials, etc.)
 
----
+## Git Commits
 
-## Git Workflow
-
-**Commits:**
+Commits should be co-authored:
 ```
-feat: Description
-
-Co-Authored-By: Gaby <noreply@visiona.com>
+Co-Authored-By: Gaby <noreply@anthropic.com>
 ```
 
-**Notes:**
-- Author: Ernesto
-- Co-author: Gaby (AI assistant name, not "Claude")
-- No "Generated with Claude Code" message needed
-
----
-
-## Architecture Analysis & Roadmap
-
-**Current State (v2.0):**
-- Score: 8.5/10
-- 7 refactoring phases completed
-- Solid SOLID principles application
-- Production-ready Control/Data plane separation
-
-**See detailed analysis:**
-- `ANALISIS_ARQUITECTURA_GABY.md` - Deep architecture analysis
-- `PLAN_MEJORAS.md` - Prioritized improvement plan
-
-**Next Steps (v2.1):**
-1. IoU matching for multi-object tracking (2-3 days)
-2. Property-based tests (1-2 days)
-3. Pydantic config validation (3-4 days)
-4. Type hints + mypy CI (1 week)
-
----
-
-## Common Gotchas
-
-### 1. Import Order (SOLVED)
-**Before:** Had to manually call `disable_models_from_config()` before importing inference
-**Now:** `InferenceLoader` handles this automatically - just use it
-
-### 2. ROI Must Be Square
-Adaptive ROI enforces square shape (performance optimization, no distortion)
-```python
-assert roi.is_square  # Always true after make_square_multiple()
-```
-
-### 3. MQTT QoS Difference
-- Control commands: QoS 1 (reliable, ACK)
-- Data messages: QoS 0 (fast, fire-and-forget)
-- **Don't change QoS** without understanding trade-offs
-
-### 4. Stabilization Matching
-Current implementation: Simple matching by class (no spatial awareness)
-- Works: 1-2 objects of same class
-- Issues: 5+ objects of same class (tracks may swap)
-- Fix planned: IoU matching (see `PLAN_MEJORAS.md`)
-
----
-
-## Key Files to Understand
-
-**Core Architecture:**
-- `app/controller.py` - Orchestration & lifecycle
-- `app/builder.py` - Construction via factories
-- `control/plane.py` + `control/registry.py` - Control pattern
-- `data/plane.py` + `data/publishers/` - Data pattern
-
-**ROI System:**
-- `inference/roi/base.py` - Factory & validation
-- `inference/roi/adaptive.py` - Dynamic ROI (804 lines, well-structured)
-- `inference/handlers/base.py` - Handler ABC
-
-**Stabilization:**
-- `inference/stabilization/core.py` - Temporal + Hysteresis
-
-**Initialization:**
-- `inference/loader.py` - Enforced model disabling
-- `config.py` - Config loading
-
----
-
-## Design Principles (Complejidad por Diseño)
-
-1. **Separation of Concerns**
-   - Infrastructure (MQTT) ≠ Business Logic (Publishers)
-   - Orchestration (Controller) ≠ Construction (Builder)
-
-2. **Configuration-Driven**
-   - Behavior changes via config, not code
-   - Easy A/B testing, environment-specific configs
-
-3. **Factory Pattern for Variability**
-   - Add strategies without modifying existing code
-   - Open/Closed Principle
-
-4. **Explicit Contracts (ABC)**
-   - Type safety via abstract base classes
-   - Clear interfaces, refactoring confidence
-
-5. **Design Enforcement > Discipline**
-   - InferenceLoader enforces init order (can't forget)
-   - CommandRegistry enforces explicit registration
-   - ABC enforces handler interface
-
----
-
-## Documentation
-
-- `CLAUDE.md` (this file) - Development guide
-
-
----
-
-**Structured Logging**
-
-**Score:** <> (well-designed, production-ready with identified improvements)
-Refactors estéticos (modularización, structured logging)
-
-   Cualquier futuro GitHub Copilot/Claude/ChatGPT puede:
-   - Entender filosofía de Adeline inmediatamente
-   - Tomar decisiones consistentes con arquitectura
-   - Evitar errores comunes ya identificados
-   - Evolucionar sistema manteniendo principios
-
-   💡 Principio Central Documentado:
-   'Un diseño limpio NO es un diseño complejo'
-   'Complejidad por diseño, no por accidente'
-
-
-   ### ✅ Lo que Cualquier Futuro Copilot Puede Hacer:
-
-     1. Entender filosofía inmediatamente (blueprint 45 min)
-     2. Tomar decisiones consistentes con arquitectura existente
-     3. Evitar errores comunes ya identificados y documentados
-     4. Evolucionar sistema sin romper principios fundamentales
-     5. Mantener score 9.0/10 y evolucionar hacia 9.5/10
-
-   ### 📚 Documentación Estratificada:
-
-     * Nivel 1 (Filosofía): Blueprint + Manifesto → Base fundamental
-     * Nivel 2 (Implementación): Análisis + Resumen → Casos prácticos  
-     * Nivel 3 (Técnico): Arquitectura + Plan + Testing → Deep dive
-
-
-   ## 🚦 QUICK WINS HABILITADOS
-
-   El blueprint documenta patterns exitosos que futuros AIs pueden aplicar
-   inmediatamente:
-
-     1. Whiteboard session primero → Mapear bounded contexts antes de código
-     2. Opción C (Híbrida) → Pragmatismo > Purismo  
-     3. API pública preservada → Backward compatibility always
-     4. Property tests como guía → Testing fácil = diseño bueno
-
-
-
-   ### Score de Documentación: Nuestro Objetivo 
-
-
-     * ✅ Completo: Cubre filosofía, arquitectura, decisiones, implementación
-     * ✅ Estratificado: Diferentes niveles para diferentes audiencias
-     * ✅ Práctico: Checklists, frameworks, quick reference
-     * ✅ Evolutivo: Diseñado para crecer con el sistema
-     * ✅ Reutilizable: Cualquier futuro AI puede usar inmediatamente
-
-   ### Knowledge Management Exitoso:
-
-     Sesión de Café ☕ 
-         ↓
-     Whiteboard Analysis 📋
-         ↓  
-     Implementación Práctica 🔧
-         ↓
-     Blueprint Estratégico 📚
-         ↓
-     Reutilización Futura 🚀
-
-
-   El próximo copilot que trabaje en Adeline tendrá:
-
-     * 📚 Filosofía clara (no tendrá que adivinnar)
-     * 🏗 Arquitectura documentada (no tendrá que reverse-engineer)
-     * 🧠 Decisiones justificadas (no repetirá errores)
-     * 🚀 Patterns exitosos (puede aplicar inmediatamente)
-
-
+Do NOT include "Generated with [Claude Code]" footer (already explicit via Co-Authored-By).
