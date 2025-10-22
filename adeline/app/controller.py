@@ -35,9 +35,9 @@ from inference.core.interfaces.stream.watchdog import BasePipelineWatchDog
 
 # Internal imports (new package structure)
 from ..control import MQTTControlPlane
-from ..data import MQTTDataPlane, create_mqtt_sink
-from ..visualization import create_visualization_sink
+from ..data import MQTTDataPlane
 from ..config import PipelineConfig
+from .builder import PipelineBuilder
 
 # Logger (será configurado en main() con config values)
 logger = logging.getLogger(__name__)
@@ -54,22 +54,54 @@ logger = logging.getLogger(__name__)
 class InferencePipelineController:
     """
     Controlador del pipeline con MQTT control y data plane.
+
+    Responsabilidad: Orquestación y lifecycle management
+    - Setup de componentes (delega construcción a Builder)
+    - Lifecycle management (start/stop/pause/resume)
+    - Signal handling (Ctrl+C)
+    - Cleanup de recursos
+
+    Diseño: Complejidad por diseño
+    - Controller orquesta, no construye (delega a Builder)
+    - SRP: Solo maneja lifecycle, no detalles de construcción
     """
-    
+
     def __init__(self, config: PipelineConfig):
         self.config = config
+        self.builder = PipelineBuilder(config)  # Builder para construcción
+
+        # Componentes (serán creados por builder en setup)
         self.pipeline = None
         self.control_plane = None
         self.data_plane = None
         self.watchdog = BasePipelineWatchDog()  # Monitoreo de métricas
+
+        # Estado (será seteado por builder)
+        self.inference_handler = None
+        self.roi_state = None
+        self.stabilizer = None
+
+        # Lifecycle
         self.shutdown_event = Event()
         self.is_running = False
         
     def setup(self):
-        """Inicializa el pipeline y las conexiones MQTT"""
+        """
+        Inicializa el pipeline y las conexiones MQTT.
+
+        Responsabilidad: Orquestación
+        - Setup de Data/Control Plane
+        - Delega construcción a PipelineBuilder
+        - Auto-inicia pipeline
+
+        Returns:
+            bool: True si setup exitoso, False si falla
+        """
         logger.info("🚀 Inicializando InferencePipeline con MQTT...")
-        
+
+        # ====================================================================
         # 1. Configurar Data Plane (publicador de inferencias)
+        # ====================================================================
         logger.info("📡 Configurando Data Plane...")
         self.data_plane = MQTTDataPlane(
             broker_host=self.config.MQTT_BROKER,
@@ -80,202 +112,50 @@ class InferencePipelineController:
             password=self.config.MQTT_PASSWORD,
             qos=self.config.DATA_QOS,
         )
-        
+
         if not self.data_plane.connect(timeout=10):
             logger.error("❌ No se pudo conectar Data Plane")
             return False
 
-        # Conectar watchdog al Data Plane para publicar métricas
+        # Conectar watchdog para publicar métricas
         self.data_plane.set_watchdog(self.watchdog)
 
-        # 2. Crear sink para publicar inferencias
-        mqtt_sink = create_mqtt_sink(self.data_plane)
+        # ====================================================================
+        # 2. Build Inference Handler (DELEGADO A BUILDER)
+        # ====================================================================
+        self.inference_handler, self.roi_state = self.builder.build_inference_handler()
 
-        # 2b. Detection Stabilization (wrappea mqtt_sink si está habilitado)
+        # ====================================================================
+        # 3. Build Sinks (DELEGADO A BUILDER)
+        # ====================================================================
+        sinks = self.builder.build_sinks(
+            data_plane=self.data_plane,
+            roi_state=self.roi_state,
+            inference_handler=self.inference_handler,
+        )
+
+        # ====================================================================
+        # 4. Wrap con Stabilization si necesario (DELEGADO A BUILDER)
+        # ====================================================================
         if self.config.STABILIZATION_MODE != 'none':
-            from ..inference.stabilization import (
-                create_stabilization_strategy,
-                create_stabilization_sink,
-                StabilizationConfig,
-            )
-
-            logger.info("🔧 Configurando Detection Stabilization...")
-
-            # Crear configuración validada
-            stab_config = StabilizationConfig(
-                mode=self.config.STABILIZATION_MODE,
-                temporal_min_frames=self.config.STABILIZATION_MIN_FRAMES,
-                temporal_max_gap=self.config.STABILIZATION_MAX_GAP,
-                hysteresis_appear_conf=self.config.STABILIZATION_APPEAR_CONF,
-                hysteresis_persist_conf=self.config.STABILIZATION_PERSIST_CONF,
-            )
-
-            # Factory: Crear stabilizer
-            self.stabilizer = create_stabilization_strategy(stab_config)
-
-            # Wrappear mqtt_sink con stabilization
-            mqtt_sink = create_stabilization_sink(
-                stabilizer=self.stabilizer,
-                downstream_sink=mqtt_sink,
-            )
-
-            logger.info(f"✅ Detection Stabilization habilitado: mode={self.config.STABILIZATION_MODE}")
+            sinks = self.builder.wrap_sinks_with_stabilization(sinks)
+            self.stabilizer = self.builder.stabilizer
         else:
             self.stabilizer = None
-            logger.info("🔲 Detection Stabilization: NONE (baseline, sin filtrado)")
 
         # ====================================================================
-        # 3 & 4. PIPELINE CREATION: Default vs Custom Logic (ROI Strategy)
+        # 5. Build Pipeline (DELEGADO A BUILDER)
         # ====================================================================
+        self.pipeline = self.builder.build_pipeline(
+            inference_handler=self.inference_handler,
+            sinks=sinks,
+            watchdog=self.watchdog,
+            status_update_handlers=[self._status_update_handler],
+        )
 
-        if self.config.ROI_MODE in ['adaptive', 'fixed']:
-            # ================================================================
-            # CUSTOM LOGIC: ROI Strategy (Adaptive or Fixed)
-            # ================================================================
-            from ..inference.roi import (
-                validate_and_create_roi_strategy,
-                ROIStrategyConfig,
-                FixedROIInferenceHandler,
-                AdaptiveInferenceHandler,
-                roi_update_sink,
-            )
-
-            # Crear configuración validada
-            roi_config = ROIStrategyConfig(
-                mode=self.config.ROI_MODE,
-                # Adaptive params
-                adaptive_margin=self.config.CROP_MARGIN,
-                adaptive_smoothing=self.config.CROP_SMOOTHING,
-                adaptive_min_roi_multiple=self.config.CROP_MIN_ROI_MULTIPLE,
-                adaptive_max_roi_multiple=self.config.CROP_MAX_ROI_MULTIPLE,
-                adaptive_show_statistics=self.config.CROP_SHOW_STATISTICS,
-                adaptive_resize_to_model=self.config.ADAPTIVE_RESIZE_TO_MODEL,
-                # Fixed params
-                fixed_x_min=self.config.FIXED_X_MIN,
-                fixed_y_min=self.config.FIXED_Y_MIN,
-                fixed_x_max=self.config.FIXED_X_MAX,
-                fixed_y_max=self.config.FIXED_Y_MAX,
-                fixed_show_overlay=self.config.FIXED_SHOW_OVERLAY,
-                fixed_resize_to_model=self.config.FIXED_RESIZE_TO_MODEL,
-                # Model config
-                imgsz=self.config.MODEL_IMGSZ,
-            )
-
-            # Factory: Crear ROI state apropiado (Adaptive o Fixed)
-            self.roi_state = validate_and_create_roi_strategy(
-                mode=self.config.ROI_MODE,
-                config=roi_config,
-            )
-
-            # Crear modelo (local ONNX o Roboflow según config)
-            from ..inference import get_model_from_config, get_process_frame_function
-            from inference.core.interfaces.stream.entities import ModelConfig
-
-            model = get_model_from_config(
-                use_local=self.config.USE_LOCAL_MODEL,
-                local_path=self.config.LOCAL_MODEL_PATH,
-                model_id=self.config.MODEL_ID,
-                api_key=self.config.API_KEY,
-                imgsz=self.config.MODEL_IMGSZ,
-            )
-
-            # Configuración de inferencia
-            inference_config = ModelConfig.init(
-                confidence=self.config.MODEL_CONFIDENCE,
-                iou_threshold=self.config.MODEL_IOU_THRESHOLD,
-            )
-
-            # Función de procesamiento apropiada según tipo de modelo
-            process_frame_fn = get_process_frame_function(model)
-
-            # Factory: Crear handler apropiado según estrategia ROI
-            if self.config.ROI_MODE == 'adaptive':
-                logger.info("🔄 Using AdaptiveInferenceHandler (dynamic ROI)")
-                self.inference_handler = AdaptiveInferenceHandler(
-                    model=model,
-                    inference_config=inference_config,
-                    roi_state=self.roi_state,
-                    process_frame_fn=process_frame_fn,
-                    show_statistics=self.config.CROP_SHOW_STATISTICS,
-                )
-            elif self.config.ROI_MODE == 'fixed':
-                logger.info("📍 Using FixedROIInferenceHandler (static ROI)")
-                self.inference_handler = FixedROIInferenceHandler(
-                    model=model,
-                    inference_config=inference_config,
-                    roi_state=self.roi_state,
-                    process_frame_fn=process_frame_fn,
-                    show_statistics=self.config.CROP_SHOW_STATISTICS,
-                )
-            else:
-                raise ValueError(f"Invalid ROI_MODE for custom logic: {self.config.ROI_MODE}")
-
-            # Configurar sinks: MQTT + ROI update (solo adaptive) + visualización
-            sinks_list = [mqtt_sink]
-
-            # ROI update sink solo para adaptive (fixed es inmutable)
-            if self.config.ROI_MODE == 'adaptive':
-                roi_sink = partial(roi_update_sink, roi_state=self.roi_state)
-                sinks_list.append(roi_sink)
-
-            if self.config.ENABLE_VISUALIZATION:
-                # Window name según estrategia
-                window_name = f"Inference Pipeline ({self.config.ROI_MODE.capitalize()} ROI)"
-
-                # Sink unificado: detecciones + ROI en una sola ventana
-                viz_sink = create_visualization_sink(
-                    roi_state=self.roi_state,
-                    inference_handler=self.inference_handler,
-                    display_stats=self.config.DISPLAY_STATISTICS,
-                    window_name=window_name,
-                )
-                sinks_list.append(viz_sink)
-
-            on_prediction = partial(multi_sink, sinks=sinks_list)
-
-            # Pipeline con custom logic
-            logger.info("🔧 Creando InferencePipeline (custom logic)...")
-            self.pipeline = InferencePipeline.init_with_custom_logic(
-                video_reference=self.config.RTSP_URL,
-                on_video_frame=self.inference_handler,  # Custom wrapper
-                on_prediction=on_prediction,
-                max_fps=self.config.MAX_FPS,
-                watchdog=self.watchdog,
-                status_update_handlers=[self._status_update_handler],
-            )
-
-        else:
-            # ================================================================
-            # DEFAULT PIPELINE: Standard Roboflow model inference
-            # ================================================================
-            logger.info("📦 Usando pipeline standard (default)")
-
-            # Configurar sinks (MQTT + visualización opcional)
-            if self.config.ENABLE_VISUALIZATION:
-                # Sink unificado de visualización
-                viz_sink = create_visualization_sink(
-                    roi_state=None,
-                    inference_handler=None,
-                    display_stats=self.config.DISPLAY_STATISTICS,
-                    window_name="Inference Pipeline (Standard)",
-                )
-                on_prediction = partial(multi_sink, sinks=[mqtt_sink, viz_sink])
-            else:
-                on_prediction = mqtt_sink
-
-            # Pipeline standard
-            logger.info("🔧 Creando InferencePipeline (standard)...")
-            self.pipeline = InferencePipeline.init(
-                max_fps=self.config.MAX_FPS,
-                model_id=self.config.MODEL_ID,
-                video_reference=self.config.RTSP_URL,
-                on_prediction=on_prediction,
-                api_key=self.config.API_KEY,
-                watchdog=self.watchdog,
-                status_update_handlers=[self._status_update_handler],
-            )
-        
-        # 5. Configurar Control Plane (receptor de comandos)
+        # ====================================================================
+        # 6. Configurar Control Plane (receptor de comandos)
+        # ====================================================================
         logger.info("🎮 Configurando Control Plane...")
         self.control_plane = MQTTControlPlane(
             broker_host=self.config.MQTT_BROKER,
@@ -285,38 +165,51 @@ class InferencePipelineController:
             username=self.config.MQTT_USERNAME,
             password=self.config.MQTT_PASSWORD,
         )
-        
-        # Configurar callbacks de control (sin START, pipeline auto-inicia)
+
+        # Configurar callbacks
+        self._setup_control_callbacks()
+
+        if not self.control_plane.connect(timeout=10):
+            logger.error("❌ No se pudo conectar Control Plane")
+            return False
+
+        # ====================================================================
+        # 7. Auto-iniciar el pipeline
+        # ====================================================================
+        logger.info("▶️ Iniciando pipeline automáticamente...")
+        try:
+            self.is_running = True
+            self.pipeline.start()
+            logger.info("✅ Pipeline iniciado y corriendo")
+        except Exception as e:
+            logger.error(f"❌ Error iniciando pipeline: {e}", exc_info=True)
+            self.is_running = False
+            return False
+
+        logger.info("✅ Setup completado")
+        return True
+
+    def _setup_control_callbacks(self):
+        """
+        Configura callbacks del Control Plane.
+
+        Callbacks condicionales basados en capabilities del handler.
+        """
+        # Callbacks básicos (siempre disponibles)
         self.control_plane.on_stop = self._handle_stop
         self.control_plane.on_pause = self._handle_pause
         self.control_plane.on_resume = self._handle_resume
         self.control_plane.on_metrics = self._handle_metrics
 
-        # Callback TOGGLE_CROP solo para adaptive (fixed no tiene toggle)
-        if self.config.ROI_MODE == 'adaptive':
+        # Callback TOGGLE_CROP solo si handler soporta toggle
+        if self.inference_handler and self.inference_handler.supports_toggle:
             self.control_plane.on_toggle_crop = self._handle_toggle_crop
+            logger.info("✅ toggle_crop callback registered (handler supports toggle)")
 
         # Callback STABILIZATION_STATS solo si stabilization habilitado
-        if self.config.STABILIZATION_MODE != 'none':
+        if self.stabilizer is not None:
             self.control_plane.on_stabilization_stats = self._handle_stabilization_stats
-
-        if not self.control_plane.connect(timeout=10):
-            logger.error("❌ No se pudo conectar Control Plane")
-            return False
-        
-        # 6. Auto-iniciar el pipeline
-        logger.info("▶️ Iniciando pipeline automáticamente...")
-        try:
-            self.is_running = True  # Setear ANTES porque start() puede bloquear
-            self.pipeline.start()
-            logger.info("✅ Pipeline iniciado y corriendo")
-        except Exception as e:
-            logger.error(f"❌ Error iniciando pipeline: {e}", exc_info=True)
-            self.is_running = False  # Revertir si falla
-            return False
-
-        logger.info("✅ Setup completado")
-        return True
+            logger.info("✅ stabilization_stats callback registered")
     
     def _status_update_handler(self, status: StatusUpdate):
         """Handler para status updates del pipeline"""
@@ -373,28 +266,26 @@ class InferencePipelineController:
             logger.error(f"❌ Error publicando métricas: {e}", exc_info=True)
 
     def _handle_toggle_crop(self):
-        """Callback para comando TOGGLE_CROP - habilita/deshabilita crop (solo adaptive)"""
+        """
+        Callback para comando TOGGLE_CROP.
+
+        Usa métodos enable/disable del handler (encapsulación).
+        """
         logger.info("🔲 Comando TOGGLE_CROP recibido")
 
-        if self.config.ROI_MODE != 'adaptive':
-            logger.warning(f"⚠️ TOGGLE_CROP no disponible en modo '{self.config.ROI_MODE}'")
-            logger.info("💡 Para usar TOGGLE_CROP, configurar roi_strategy.mode: adaptive en config.yaml")
+        # Validación: handler debe soportar toggle
+        if not self.inference_handler.supports_toggle:
+            logger.warning(
+                f"⚠️ Handler {self.inference_handler.__class__.__name__} "
+                f"no soporta toggle dinámico"
+            )
             return
 
-        if not hasattr(self, 'inference_handler'):
-            logger.warning("⚠️ TOGGLE_CROP no disponible - pipeline en modo standard")
-            return
-
-        # Toggle estado
-        new_state = not self.inference_handler.enabled
-        self.inference_handler.enabled = new_state
-
-        logger.info(f"✅ Adaptive Crop {'ENABLED' if new_state else 'DISABLED'}")
-
-        # Opcional: resetear ROI al deshabilitar
-        if not new_state and hasattr(self, 'roi_state'):
-            self.roi_state.reset()
-            logger.info("🔄 ROI state reset to full frame")
+        # Toggle usando métodos del handler
+        if self.inference_handler.enabled:
+            self.inference_handler.disable()  # Llama disable() que resetea ROI
+        else:
+            self.inference_handler.enable()
 
     def _handle_stabilization_stats(self):
         """Callback para comando STABILIZATION_STATS - publica estadísticas de estabilización"""
