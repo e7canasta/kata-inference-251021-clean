@@ -1010,7 +1010,7 @@ wheels = [
 
 [[package]]
 name = "inference"
-version = "0.58.2"
+version = "0.58.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1074,7 +1074,7 @@ dependencies = [
     { name = "zxing-cpp" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/93/a004ad6d5583b8ecd25927f8ca70dc96f8e9880d1c24c505f0194102f364/inference-0.58.2-py3-none-any.whl", hash = "sha256:a1ccdfceb0a78d9dcec7f1de3fbb431a6646ad14cd74b243e2e78fdef785d4b8", size = 2505740, upload-time = "2025-10-13T14:10:24.381Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/b5/472acc9f87058f36a607d62bba4bda7b3114f77e117b25b664c69f3fd407/inference-0.58.3-py3-none-any.whl", hash = "sha256:18cf95e48e921b9e9c9004627399b0532054ef7783cb17192e24439011d7930e", size = 2505807, upload-time = "2025-10-21T19:35:27.462Z" },
 ]
 
 [[package]]

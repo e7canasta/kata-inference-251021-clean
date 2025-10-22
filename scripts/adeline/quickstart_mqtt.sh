@@ -34,7 +34,10 @@ echo ""
 
 # Iniciar MQTT broker
 echo -e "${BLUE}2. Starting MQTT broker...${NC}"
-docker-compose -f docker-compose.mqtt.yml up -d
+# Get script directory and navigate to project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+docker-compose -f "$PROJECT_ROOT/docker/adeline/docker-compose.mqtt.yml" up -d
 
 # Esperar a que el broker esté listo
 echo "Waiting for broker to be ready..."
@@ -68,23 +71,24 @@ echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo ""
 echo "1. Install Python dependencies:"
-echo "   ${BLUE}uv sync${NC}"
+echo "   ${BLUE}make install${NC}"
 echo ""
 echo "2. Start the pipeline:"
-echo "   ${BLUE}python run_pipeline_mqtt.py${NC}"
+echo "   ${BLUE}make run${NC}"
 echo ""
 echo "3. In another terminal, send commands:"
-echo "   ${BLUE}python mqtt_control_cli.py start${NC}"
-echo "   ${BLUE}python mqtt_control_cli.py stop${NC}"
+echo "   ${BLUE}make pause${NC}"
+echo "   ${BLUE}make resume${NC}"
+echo "   ${BLUE}make stop${NC}"
 echo ""
 echo "4. Monitor detections:"
-echo "   ${BLUE}python mqtt_data_monitor.py${NC}"
+echo "   ${BLUE}make monitor-data${NC}"
 echo ""
 echo "5. Or use mosquitto clients:"
 echo "   ${BLUE}mosquitto_sub -h localhost -t inference/data/detections${NC}"
 echo ""
 echo -e "${YELLOW}To stop the MQTT broker:${NC}"
-echo "   ${BLUE}docker-compose -f docker-compose.mqtt.yml down${NC}"
+echo "   ${BLUE}make services-down${NC}"
 echo ""
-echo "📚 See README_MQTT.md for full documentation"
+echo "📚 See docs/adeline/README_MQTT.md for full documentation"
 
