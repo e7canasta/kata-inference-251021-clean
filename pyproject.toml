@@ -13,4 +13,5 @@ dependencies = [
     "paho-mqtt>=1.6.1,<1.7",
     "pyyaml>=6.0.1",
     "python-dotenv>=1.0.0",
+    "python-json-logger>=4.0.0",
 ]

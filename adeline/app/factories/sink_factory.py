@@ -30,7 +30,13 @@ def _create_mqtt_sink_factory(config: Any, data_plane: Any, **kwargs) -> Callabl
     """Factory para MQTT sink (siempre presente)."""
     from ...data import create_mqtt_sink
     sink = create_mqtt_sink(data_plane)
-    logger.info("✅ MQTT sink added")
+    logger.info(
+        "MQTT sink created",
+        extra={
+            "component": "sink_factory",
+            "event": "mqtt_sink_created",
+        }
+    )
     return sink
 
 
@@ -41,7 +47,14 @@ def _create_roi_update_sink_factory(config: Any, roi_state: Any, **kwargs) -> Op
 
     from ...inference.roi import roi_update_sink
     sink = partial(roi_update_sink, roi_state=roi_state)
-    logger.info("✅ ROI update sink added (adaptive mode)")
+    logger.info(
+        "ROI update sink created",
+        extra={
+            "component": "sink_factory",
+            "event": "roi_sink_created",
+            "roi_mode": config.ROI_MODE,
+        }
+    )
     return sink
 
 
@@ -64,7 +77,16 @@ def _create_visualization_sink_factory(config: Any, roi_state: Any, inference_ha
         display_stats=config.DISPLAY_STATISTICS,
         window_name=window_name,
     )
-    logger.info(f"✅ Visualization sink added: {window_name}")
+    logger.info(
+        "Visualization sink created",
+        extra={
+            "component": "sink_factory",
+            "event": "visualization_sink_created",
+            "window_name": window_name,
+            "roi_mode": config.ROI_MODE,
+            "display_stats": config.DISPLAY_STATISTICS,
+        }
+    )
     return sink
 
 

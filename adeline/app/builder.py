@@ -79,7 +79,10 @@ class PipelineBuilder:
                 - handler: BaseInferenceHandler
                 - roi_state: ROIState | FixedROIState | None
         """
-        logger.info("🔧 Building inference handler...")
+        logger.info(
+            "Building inference handler",
+            extra={"component": "builder", "event": "handler_build_start"}
+        )
         return InferenceHandlerFactory.create(self.config)
 
     def build_sinks(
@@ -101,7 +104,10 @@ class PipelineBuilder:
         Returns:
             Lista de sinks para multi_sink()
         """
-        logger.info("🔧 Building sinks...")
+        logger.info(
+            "Building sinks",
+            extra={"component": "builder", "event": "sinks_build_start"}
+        )
         return SinkFactory.create_sinks(
             config=self.config,
             data_plane=data_plane,
@@ -126,11 +132,21 @@ class PipelineBuilder:
             Functional purity: No modifica input, retorna nuevo array.
         """
         if self.config.STABILIZATION_MODE == 'none':
-            logger.info("🔲 Stabilization wrapper: SKIPPED (mode=none)")
+            logger.info(
+                "Stabilization wrapper skipped",
+                extra={
+                    "component": "builder",
+                    "event": "stabilization_skipped",
+                    "reason": "mode=none"
+                }
+            )
             self.stabilizer = None
             return sinks
 
-        logger.info("🔧 Wrapping sink with stabilization...")
+        logger.info(
+            "Wrapping sink with stabilization",
+            extra={"component": "builder", "event": "stabilization_wrap_start"}
+        )
 
         from ..inference.stabilization import create_stabilization_sink
 
@@ -147,7 +163,14 @@ class PipelineBuilder:
         # NUEVO array con wrapped sink (immutable operation)
         new_sinks = [stabilized_sink] + sinks[1:]
 
-        logger.info(f"✅ Stabilization wrapper: {self.config.STABILIZATION_MODE.upper()}")
+        logger.info(
+            "Stabilization wrapper complete",
+            extra={
+                "component": "builder",
+                "event": "stabilization_wrap_complete",
+                "stabilization_mode": self.config.STABILIZATION_MODE
+            }
+        )
         return new_sinks
 
     def build_pipeline(
@@ -169,7 +192,10 @@ class PipelineBuilder:
         Returns:
             InferencePipeline configurado
         """
-        logger.info("🔧 Building InferencePipeline...")
+        logger.info(
+            "Building InferencePipeline",
+            extra={"component": "builder", "event": "pipeline_build_start"}
+        )
 
         # Composición de sinks
         on_prediction = partial(multi_sink, sinks=sinks)
@@ -179,7 +205,15 @@ class PipelineBuilder:
             # ============================================================
             # STANDARD PIPELINE (model_id based)
             # ============================================================
-            logger.info("📦 Creating standard pipeline (model_id based)...")
+            logger.info(
+                "Creating standard pipeline",
+                extra={
+                    "component": "builder",
+                    "event": "pipeline_created",
+                    "pipeline_type": "standard",
+                    "model_id": self.config.MODEL_ID
+                }
+            )
             pipeline = InferencePipeline.init(
                 max_fps=self.config.MAX_FPS,
                 model_id=self.config.MODEL_ID,
@@ -194,7 +228,15 @@ class PipelineBuilder:
             # ============================================================
             # CUSTOM LOGIC PIPELINE (ROI based)
             # ============================================================
-            logger.info("🔧 Creating custom logic pipeline (ROI based)...")
+            logger.info(
+                "Creating custom logic pipeline",
+                extra={
+                    "component": "builder",
+                    "event": "pipeline_created",
+                    "pipeline_type": "custom_logic",
+                    "roi_mode": self.config.ROI_MODE
+                }
+            )
             pipeline = InferencePipeline.init_with_custom_logic(
                 video_reference=self.config.RTSP_URL,
                 on_video_frame=inference_handler,
@@ -204,5 +246,8 @@ class PipelineBuilder:
                 status_update_handlers=status_update_handlers,
             )
 
-        logger.info("✅ Pipeline created successfully")
+        logger.info(
+            "Pipeline build complete",
+            extra={"component": "builder", "event": "pipeline_build_complete"}
+        )
         return pipeline

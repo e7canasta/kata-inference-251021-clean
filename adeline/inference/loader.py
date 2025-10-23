@@ -48,16 +48,15 @@ class InferenceLoader:
     @classmethod
     def disable_models_from_config(cls, config_path: str = "config/adeline/config.yaml"):
         """
-        Deshabilita modelos según config (solo si no se hizo antes).
+        [DEPRECATED] Deshabilita modelos según config.
 
-        IMPORTANTE: Se ejecuta automáticamente en get_inference()
-        No necesitas llamar esto manualmente.
+        NOTA: Al usar 'make run', las env vars se setean directamente en Makefile.
+        Este método se mantiene por compatibilidad pero ya no es necesario llamarlo.
 
         Args:
             config_path: Path al config.yaml (default: config/adeline/config.yaml)
         """
         if cls._models_disabled:
-            logger.debug("Models already disabled, skipping")
             return
 
         # Importar función desde config
@@ -65,14 +64,14 @@ class InferenceLoader:
 
         _disable_fn(config_path)
         cls._models_disabled = True
-        logger.debug("✅ Models disabled from config")
 
     @classmethod
     def get_inference(cls) -> Any:
         """
         Retorna módulo inference (lazy load).
 
-        Garantiza que models se deshabiliten ANTES de import.
+        NOTA: Las env vars para deshabilitar modelos deben setearse ANTES
+        de llamar este método (ej: en Makefile, env_setup.py, o tests).
 
         Returns:
             Módulo inference ya inicializado
@@ -82,17 +81,25 @@ class InferenceLoader:
             pipeline = inference.InferencePipeline.init(...)
         """
         if cls._inference_module is None:
-            logger.info("🔧 Lazy loading inference module...")
+            logger.info(
+                "Lazy loading inference module",
+                extra={
+                    "component": "inference_loader",
+                    "event": "lazy_load_start",
+                }
+            )
 
-            # 1. Disable models PRIMERO (enforced)
-            if not cls._models_disabled:
-                cls.disable_models_from_config()
-
-            # 2. AHORA importar inference (models ya disabled)
+            # Importar inference (env vars ya configuradas por Makefile/env_setup)
             import inference
             cls._inference_module = inference
 
-            logger.info("✅ Inference module loaded")
+            logger.info(
+                "Inference module loaded",
+                extra={
+                    "component": "inference_loader",
+                    "event": "lazy_load_success",
+                }
+            )
 
         return cls._inference_module
 
@@ -105,4 +112,10 @@ class InferenceLoader:
         """
         cls._inference_module = None
         cls._models_disabled = False
-        logger.debug("🔄 InferenceLoader reset")
+        logger.debug(
+            "InferenceLoader reset",
+            extra={
+                "component": "inference_loader",
+                "event": "loader_reset",
+            }
+        )

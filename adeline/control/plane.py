@@ -9,6 +9,7 @@ Diseño: Complejidad por diseño
 - Usa CommandRegistry para comandos explícitos
 - No más callbacks opcionales (on_pause, on_stop, etc.)
 - Validación de comandos centralizada en registry
+- Structured logging con trace correlation
 """
 import json
 import logging
@@ -19,6 +20,12 @@ from typing import Optional
 import paho.mqtt.client as mqtt
 
 from .registry import CommandRegistry, CommandNotAvailableError
+from ..logging import (
+    trace_context,
+    generate_trace_id,
+    log_mqtt_command,
+    log_error_with_context
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,17 +94,49 @@ class MQTTControlPlane:
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         """Callback cuando se conecta al broker"""
         if rc == 0:
-            logger.info(f"✅ Control Plane conectado a {self.broker_host}:{self.broker_port}")
+            logger.info(
+                "Control Plane connected to broker",
+                extra={
+                    "component": "control_plane",
+                    "event": "broker_connected",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port
+                }
+            )
             self.client.subscribe(self.command_topic, qos=1)
-            logger.info(f"📡 Suscrito a: {self.command_topic}")
+            logger.info(
+                "Subscribed to command topic",
+                extra={
+                    "component": "control_plane",
+                    "event": "topic_subscribed",
+                    "topic": self.command_topic,
+                    "qos": 1
+                }
+            )
             self._connected.set()
             self.publish_status("connected")
         else:
-            logger.error(f"❌ Error conectando al broker MQTT: {rc}")
+            logger.error(
+                "Failed to connect to MQTT broker",
+                extra={
+                    "component": "control_plane",
+                    "event": "connection_error",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port,
+                    "return_code": rc
+                }
+            )
 
     def _on_disconnect(self, client, userdata, rc, properties=None):
         """Callback cuando se desconecta del broker"""
-        logger.warning(f"⚠️ Control Plane desconectado (rc={rc})")
+        logger.warning(
+            "Control Plane disconnected from broker",
+            extra={
+                "component": "control_plane",
+                "event": "broker_disconnected",
+                "return_code": rc
+            }
+        )
         self._connected.clear()
 
     def _on_message(self, client, userdata, msg):
@@ -105,32 +144,63 @@ class MQTTControlPlane:
         Callback cuando recibe un mensaje MQTT.
 
         Usa CommandRegistry para ejecutar comandos.
-        No más callbacks opcionales - todo via registry.
+        Propaga trace_id para correlation en toda la call stack.
         """
-        logger.debug(f"🔔 Mensaje MQTT recibido en topic: {msg.topic}")
         try:
             payload = msg.payload.decode('utf-8')
-            logger.debug(f"📦 Payload: {payload}")
             command_data = json.loads(payload)
             command = command_data.get('command', '').lower()
 
-            logger.info(f"📥 Comando recibido: {command}")
+            # Generar trace_id para este comando (permite seguir todo el flujo)
+            trace_id = generate_trace_id(prefix=f"cmd-{command}")
 
-            # Ejecutar comando vía registry
-            try:
-                self.command_registry.execute(command)
-                logger.debug(f"✅ Comando '{command}' ejecutado correctamente")
+            # Trace context propaga el ID en toda la ejecución
+            with trace_context(trace_id):
+                # Log comando con contexto estructurado
+                log_mqtt_command(
+                    logger,
+                    command=command,
+                    topic=msg.topic,
+                    payload=command_data,
+                    trace_id=trace_id
+                )
 
-            except CommandNotAvailableError as e:
-                logger.warning(f"⚠️ {e}")
-                # Listar comandos disponibles para ayudar al usuario
-                available = ', '.join(sorted(self.command_registry.available_commands))
-                logger.info(f"💡 Comandos disponibles: {available}")
+                # Ejecutar comando vía registry
+                try:
+                    self.command_registry.execute(command)
+                    logger.debug(
+                        f"✅ Comando '{command}' ejecutado correctamente",
+                        extra={"command": command, "trace_id": trace_id}
+                    )
 
-        except json.JSONDecodeError:
-            logger.error(f"❌ Error decodificando JSON: {msg.payload}")
+                except CommandNotAvailableError as e:
+                    logger.warning(
+                        f"⚠️ {e}",
+                        extra={
+                            "command": command,
+                            "trace_id": trace_id,
+                            "available_commands": sorted(self.command_registry.available_commands)
+                        }
+                    )
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"❌ Error decodificando JSON: {msg.payload}",
+                extra={
+                    "component": "control_plane",
+                    "mqtt_topic": msg.topic,
+                    "raw_payload": str(msg.payload)
+                }
+            )
         except Exception as e:
-            logger.error(f"❌ Error procesando mensaje: {e}", exc_info=True)
+            log_error_with_context(
+                logger,
+                message="Error procesando mensaje MQTT",
+                exception=e,
+                component="control_plane",
+                event="message_processing_error",
+                mqtt_topic=msg.topic
+            )
 
     def publish_status(self, status: str):
         """
@@ -150,17 +220,43 @@ class MQTTControlPlane:
             qos=1,
             retain=True
         )
-        logger.info(f"📤 Status publicado: {status}")
+        logger.info(
+            "Status published",
+            extra={
+                "component": "control_plane",
+                "event": "status_published",
+                "status": status,
+                "topic": self.status_topic
+            }
+        )
 
     def connect(self, timeout: float = 5.0) -> bool:
         """Conecta al broker MQTT"""
         try:
-            logger.info(f"🔌 Conectando a MQTT broker: {self.broker_host}:{self.broker_port}")
+            logger.info(
+                "Connecting to MQTT broker",
+                extra={
+                    "component": "control_plane",
+                    "event": "connection_attempt",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port
+                }
+            )
             self.client.connect(self.broker_host, self.broker_port, keepalive=60)
             self.client.loop_start()
             return self._connected.wait(timeout=timeout)
         except Exception as e:
-            logger.error(f"❌ Error conectando a MQTT: {e}")
+            logger.error(
+                "Failed to connect to MQTT",
+                extra={
+                    "component": "control_plane",
+                    "event": "connection_exception",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            )
             return False
 
     def disconnect(self):

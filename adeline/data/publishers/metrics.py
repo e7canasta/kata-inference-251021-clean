@@ -41,7 +41,13 @@ class MetricsPublisher:
             watchdog: Instancia de BasePipelineWatchDog del pipeline
         """
         self._watchdog = watchdog
-        logger.info("📊 Watchdog conectado al MetricsPublisher")
+        logger.info(
+            "Watchdog connected to MetricsPublisher",
+            extra={
+                "component": "metrics_publisher",
+                "event": "watchdog_connected"
+            }
+        )
 
     def format_message(self) -> Optional[Dict[str, Any]]:
         """
@@ -78,7 +84,16 @@ class MetricsPublisher:
             return message
 
         except Exception as e:
-            logger.error(f"❌ Error formateando métricas: {e}", exc_info=True)
+            logger.error(
+                "Failed to format metrics",
+                extra={
+                    "component": "metrics_publisher",
+                    "event": "format_error",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                exc_info=True
+            )
             return None
 
     @property

@@ -140,6 +140,115 @@ handler, roi_state = builder.build_inference_handler()
 - Prevents unnecessary model downloads
 - Enforced by design (not by comments)
 
+### Structured Logging (JSON)
+
+**Design Philosophy**: Solo JSON, queryable en producción
+
+**Setup** (adeline/logging.py):
+```python
+from adeline.logging import setup_logging
+
+# Desarrollo (pretty-print)
+setup_logging(level="DEBUG", indent=2)
+
+# Producción (compact JSON)
+setup_logging(level="INFO", indent=None)
+```
+
+**Trace Correlation** - Seguir comando MQTT → acciones del pipeline:
+```python
+from adeline.logging import trace_context, get_trace_id
+
+# Propagar trace_id en toda la call stack
+with trace_context(f"cmd-pause-{uuid}"):
+    process_command()
+    logger.info("Pipeline pausado", extra={"trace_id": get_trace_id()})
+```
+
+**Helper Functions** (casos comunes):
+```python
+from adeline.logging import (
+    log_mqtt_command,         # Control plane commands
+    log_pipeline_metrics,     # FPS, latency
+    log_stabilization_stats,  # Multi-object tracking
+    log_error_with_context    # Errores con contexto completo
+)
+
+log_mqtt_command(logger, command="pause", topic="inference/control/commands")
+log_pipeline_metrics(logger, fps=30.5, latency_ms=15.2)
+log_stabilization_stats(logger, raw_count=12, stabilized_count=8, active_tracks=3)
+log_error_with_context(logger, "Error conectando", exception=e, component="data_plane",
+                       broker_host="localhost", broker_port=1883)
+```
+
+**Output Format**:
+```json
+{
+  "timestamp": "2025-10-22T16:30:45.123Z",
+  "level": "INFO",
+  "logger": "adeline.control.plane",
+  "message": "📥 Comando recibido: pause",
+  "component": "control_plane",
+  "command": "pause",
+  "mqtt_topic": "inference/control/commands",
+  "trace_id": "cmd-pause-abc123"
+}
+```
+
+**Query Examples**:
+```bash
+# Trace comando específico
+jq 'select(.trace_id == "cmd-pause-abc123")' logs.json
+
+# Errores de componente
+jq 'select(.level == "ERROR" and .component == "control_plane")' logs.json
+
+# FPS promedio
+jq -s 'map(select(.metrics.fps)) | map(.metrics.fps) | add/length' logs.json
+```
+
+**Configuration** (config/adeline/config.yaml):
+```yaml
+logging:
+  level: INFO
+  json_indent: null  # null=compact (producción), 2=pretty (desarrollo)
+  paho_level: WARNING
+
+  # File rotation (opcional - si null, logs van a stdout)
+  file: null  # Ej: "logs/adeline.log" para habilitar file logging
+  max_bytes: 10485760  # 10 MB
+  backup_count: 5  # Mantener 5 backups (50 MB total)
+
+  # Producción:
+  # file: "/var/log/adeline/adeline.log"
+  # max_bytes: 10485760  # 10 MB
+  # backup_count: 7  # 70 MB total
+```
+
+**File Rotation**:
+- **Built-in** (Python RotatingFileHandler): Configurar `file` en config.yaml
+  - Archivos rotados: `adeline.log`, `adeline.log.1`, `adeline.log.2`, ...
+  - Rotación automática cuando `adeline.log` alcanza `max_bytes`
+  - Mantiene `backup_count` archivos históricos
+
+- **Alternativa** (logrotate - Linux): Usar `config/logrotate.d/adeline`
+  - Instalación: `sudo cp config/logrotate.d/adeline /etc/logrotate.d/adeline`
+  - Testing: `sudo logrotate -d /etc/logrotate.d/adeline`
+  - Cron diario automático vía `/etc/cron.daily/logrotate`
+  - Soporte para compresión gzip, dateformat, retention policies
+
+**Migration Status**:
+
+| Fase   | Módulos                                                                                            | Logs      | Status |
+|--------|----------------------------------------------------------------------------------------------------|-----------|--------|
+| Fase 3 | control/plane.py, data/plane.py, inference/stabilization/core.py, app/controller.py                | ~60       | ✅      |
+| Fase 4 | app/builder.py, app/sinks/registry.py, control/registry.py, inference/factories/handler_factory.py | 21        | ✅      |
+| Fase 5 | inference/models.py, inference/loader.py, inference/roi/adaptive/state.py, factories               | 24        | ✅      |
+| Fase 6 | legacy_config.py, inference/roi/base.py, inference/roi/fixed.py, adaptive/pipeline.py, matching.py, publishers/metrics.py | 21 | ✅ |
+| **Total** | **19 módulos críticos**                                                                             | **~126 logs** | ✅  |
+
+**Status**: Migración completa de logs estructurados JSON. Sistema 100% queryable en producción.
+
 ## Key Design Patterns in Use
 
 1. **CommandRegistry** (control/registry.py): Explicit command registration, no optional callbacks
@@ -174,7 +283,8 @@ Manual testing with actors for field validation (see TEST_CASES_FUNCIONALES.md):
 
 Commits should be co-authored:
 ```
-Co-Authored-By: Gaby <noreply@anthropic.com>
+Co-Authored-By: Gaby <noreply@visiona.com>
 ```
 
 Do NOT include "Generated with [Claude Code]" footer (already explicit via Co-Authored-By).
+- La wiki está viva y documentando la complejidad por diseño de Adeline. 🎸✨

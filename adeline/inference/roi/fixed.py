@@ -89,7 +89,15 @@ class FixedROIState:
             ROIBox con coordenadas absolutas (píxeles)
         """
         if frame_shape is None:
-            logger.warning("FixedROIState.get_roi() called without frame_shape, returning None")
+            logger.warning(
+                "FixedROI called without frame_shape",
+                extra={
+                    "component": "fixed_roi",
+                    "event": "missing_frame_shape",
+                    "source_id": source_id,
+                    "description": "Cannot calculate ROI without frame dimensions"
+                }
+            )
             return None
 
         # Cache hit (evita recalcular para mismo frame size)
@@ -109,8 +117,19 @@ class FixedROIState:
         self._roi_cache[frame_shape] = roi_box
 
         logger.debug(
-            f"FixedROI: frame {frame_shape} -> ROI ({roi_box.x1},{roi_box.y1})-({roi_box.x2},{roi_box.y2}) "
-            f"[{roi_box.width}×{roi_box.height}]"
+            "Fixed ROI calculated",
+            extra={
+                "component": "fixed_roi",
+                "event": "roi_calculated",
+                "frame_height": h,
+                "frame_width": w,
+                "roi_x1": roi_box.x1,
+                "roi_y1": roi_box.y1,
+                "roi_x2": roi_box.x2,
+                "roi_y2": roi_box.y2,
+                "roi_width": roi_box.width,
+                "roi_height": roi_box.height
+            }
         )
 
         return roi_box
@@ -121,7 +140,15 @@ class FixedROIState:
 
         Implementado para compatibilidad con interface de ROIState.
         """
-        logger.debug("FixedROI.reset() called (no-op for fixed coordinates)")
+        logger.debug(
+            "FixedROI reset called (no-op)",
+            extra={
+                "component": "fixed_roi",
+                "event": "reset_noop",
+                "source_id": source_id,
+                "description": "Fixed ROI is immutable, no reset needed"
+            }
+        )
 
     @property
     def normalized_coords(self) -> Dict[str, float]:

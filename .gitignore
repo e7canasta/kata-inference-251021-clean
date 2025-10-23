@@ -5,6 +5,7 @@ build/
 dist/
 docs/deepwiki/
 docs/history/
+docs/proposals/
 
 wheels/
 *.egg-info

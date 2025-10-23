@@ -1,0 +1,188 @@
+# Adeline Configuration - Desarrollo
+# ====================================
+#
+# Basado en: config.yaml.legacy_desarrollo
+# Migrado a: Nueva estructura con ROI strategy + structured logging
+
+# ============================================================================
+# Pipeline Settings
+# ============================================================================
+pipeline:
+  # RTSP video source (via go2rtc proxy)
+  rtsp_url: "rtsp://127.0.0.1:8554/live"
+
+  # YOLO model ID (Roboflow cloud - si use_local=false)
+  model_id: "yolov12x-320"
+
+  # FPS limit (2 fps para desarrollo/testing)
+  max_fps: 2
+
+  # Visualization
+  enable_visualization: true
+  display_statistics: true
+
+
+# ============================================================================
+# ROI Strategy (Region of Interest)
+# ============================================================================
+# Migrado de adaptive_crop a roi_strategy
+roi_strategy:
+  # Opciones: "none", "adaptive", "fixed"
+  mode: "fixed"
+
+  # Fixed ROI configuration (solo si mode="fixed")
+  fixed:
+    # Coordenadas normalizadas [0.0 - 1.0]
+    # Tu config legacy: x_min=0.2, y_min=0.2, x_max=0.6, y_max=0.95
+    x_min: 0.2
+    y_min: 0.2
+    x_max: 0.6
+    y_max: 0.95
+
+    # Resize ROI to model size (zoom)
+    # true = zoom ROI a 320x320 (mejor detección de objetos pequeños)
+    # false = padding con negro
+    resize_to_model: true
+
+    # Mostrar overlay del ROI en visualización
+    show_overlay: true
+
+
+# ============================================================================
+# Detection Stabilization (Multi-Object Tracking)
+# ============================================================================
+# Reduce flickering/parpadeos con confidence bajo (0.10)
+# Estrategia: IoU matching + temporal filtering + hysteresis
+detection_stabilization:
+  # Modo: "spatial_iou" (IoU matching + temporal) o "none"
+  # Legacy: "temporal" → Migrado a: "spatial_iou"
+  mode: "spatial_iou"
+
+  # Temporal filtering
+  temporal:
+    # Frames consecutivos para confirmar detección
+    # 3 frames @ 2fps = 1.5s latencia
+    min_frames: 3
+
+    # Frames sin detección antes de eliminar track
+    # 2 frames @ 2fps = 1s tolerancia (oclusiones cortas)
+    max_gap: 2
+
+  # Hysteresis (umbrales adaptativos)
+  hysteresis:
+    # Umbral para APARECER (nueva detección)
+    # Tu config: 0.5 (conservador - filtra mucho ruido)
+    # Legacy: 0.15 (menos agresivo)
+    appear_confidence: 0.5
+
+    # Umbral para PERSISTIR (detección confirmada)
+    # Tu config: 0.3 (permite mantener tracks con conf variable)
+    # Legacy: 0.08 (muy permisivo)
+    persist_confidence: 0.3
+
+  # IoU matching (multi-object tracking)
+  iou:
+    # Threshold para match espacial (0.3 = típico)
+    threshold: 0.3
+
+
+# ============================================================================
+# MQTT Broker
+# ============================================================================
+mqtt:
+  broker:
+    host: "localhost"
+    port: 1883
+    username: null  # O mover a .env (MQTT_USERNAME)
+    password: null  # O mover a .env (MQTT_PASSWORD)
+
+  topics:
+    control_commands: "inference/control/commands"
+    control_status: "inference/control/status"
+    data: "inference/data/detections"
+    metrics: "inference/data/metrics"
+
+  qos:
+    control: 1  # At least once (comandos críticos)
+    data: 0  # Fire and forget (high-frequency data)
+
+
+# ============================================================================
+# Logging (Structured JSON)
+# ============================================================================
+logging:
+  # Log level
+  level: "INFO"  # DEBUG para troubleshooting
+
+  # DEPRECATED (solo para backward compatibility)
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Paho MQTT library log level
+  paho_level: "WARNING"
+
+  # JSON logging (structured, queryable)
+  json_indent: 2  # Pretty-print para desarrollo (null = compact en prod)
+
+  # File rotation (desarrollo - opcional)
+  # null = stdout (default para dev)
+  # "logs/adeline.log" = file con rotation
+  file: "logs/adeline.log"  # Habilitar file logging
+  max_bytes: 5242880  # 5 MB (rotar más frecuente en dev)
+  backup_count: 3  # Mantener 3 backups (15 MB total)
+
+
+# ============================================================================
+# Models Configuration
+# ============================================================================
+models:
+  # Use local ONNX model (true) o Roboflow cloud (false)
+  use_local: true
+
+  # Path to local ONNX model
+  # Tu config: yolo12m-320.onnx
+  local_path: "models/yolo12m-320.onnx"
+
+  # Image size (MUST match exported model)
+  imgsz: 320
+
+  # Confidence threshold (muy bajo para testing - ajustar según caso)
+  # Tu config: 0.10 (agresivo - stabilization filtra ruido)
+  confidence: 0.10
+
+  # IOU threshold for NMS
+  # Tu config: 0.10 (permisivo - permite overlaps)
+  iou_threshold: 0.10
+
+
+# ============================================================================
+# Models Disabled (prevents ModelDependencyMissing warnings)
+# ============================================================================
+models_disabled:
+  disabled:
+    - PALIGEMMA
+    - FLORENCE2
+    - QWEN_2_5
+    - CORE_MODEL_SAM
+    - CORE_MODEL_SAM2
+    - CORE_MODEL_CLIP
+    - CORE_MODEL_GAZE
+    - SMOLVLM2
+    - DEPTH_ESTIMATION
+    - MOONDREAM2
+    - CORE_MODEL_TROCR
+    - CORE_MODEL_GROUNDINGDINO
+    - CORE_MODEL_YOLO_WORLD
+    - CORE_MODEL_PE
+
+
+# ============================================================================
+# NOTAS DE MIGRACIÓN
+# ============================================================================
+# 1. adaptive_crop.enabled → roi_strategy.mode="fixed"
+# 2. detection_stabilization.mode="temporal" → "spatial_iou" (mejor multi-object)
+# 3. Agregado logging.file + max_bytes + backup_count (file rotation)
+# 4. Agregado logging.json_indent=2 (pretty-print para dev)
+#
+# Backward Compatible:
+# - Si comentas roi_strategy, usa legacy adaptive_crop (deprecated warning)
+# - Si logging.file=null, usa stdout (como antes)

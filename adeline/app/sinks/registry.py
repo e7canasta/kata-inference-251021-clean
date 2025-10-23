@@ -63,7 +63,15 @@ class SinkRegistry:
             >>> registry.register('mqtt', mqtt_factory, priority=1)
         """
         self._factories.append((name, factory, priority))
-        logger.debug(f"📝 Sink registered: '{name}' (priority={priority})")
+        logger.debug(
+            "Sink registered",
+            extra={
+                "component": "sink_registry",
+                "event": "sink_registered",
+                "sink_name": name,
+                "priority": priority
+            }
+        )
 
     def create_all(
         self,
@@ -95,15 +103,45 @@ class SinkRegistry:
 
                 # Si factory retorna None, skip
                 if sink is None:
-                    logger.debug(f"⏭️  Sink skipped: {name}")
+                    logger.debug(
+                        "Sink skipped",
+                        extra={
+                            "component": "sink_registry",
+                            "event": "sink_skipped",
+                            "sink_name": name
+                        }
+                    )
                     continue
 
                 sinks.append(sink)
-                logger.info(f"✅ Sink created: {name} (priority={priority})")
+                logger.info(
+                    "Sink created",
+                    extra={
+                        "component": "sink_registry",
+                        "event": "sink_created",
+                        "sink_name": name,
+                        "priority": priority
+                    }
+                )
 
             except Exception as e:
-                logger.error(f"❌ Error creating sink '{name}': {e}")
+                logger.error(
+                    "Error creating sink",
+                    extra={
+                        "component": "sink_registry",
+                        "event": "sink_creation_failed",
+                        "sink_name": name,
+                        "error": str(e)
+                    }
+                )
                 raise
 
-        logger.info(f"📊 Total sinks created: {len(sinks)}")
+        logger.info(
+            "Sinks creation complete",
+            extra={
+                "component": "sink_registry",
+                "event": "sinks_creation_complete",
+                "total_sinks": len(sinks)
+            }
+        )
         return sinks

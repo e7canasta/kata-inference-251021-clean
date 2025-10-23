@@ -124,8 +124,14 @@ class PipelineConfig:
         # Logging
         logging_cfg = config.get('logging', {})
         self.LOG_LEVEL = logging_cfg.get('level', 'INFO')
-        self.LOG_FORMAT = logging_cfg.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'  # DEPRECATED: Usar JSON logging
+        self.JSON_INDENT = logging_cfg.get('json_indent', None)
         self.PAHO_LOG_LEVEL = logging_cfg.get('paho_level', 'WARNING')
+
+        # File rotation (opcional)
+        self.LOG_FILE = logging_cfg.get('file', None)  # None = stdout
+        self.LOG_MAX_BYTES = logging_cfg.get('max_bytes', 10 * 1024 * 1024)  # 10 MB
+        self.LOG_BACKUP_COUNT = logging_cfg.get('backup_count', 5)
 
         # NOTE: Model disabling ya se hizo en disable_models_from_config()
         # ANTES de importar inference (evita warnings de ModelDependencyMissing)
@@ -204,6 +210,13 @@ class PipelineConfig:
 
             if legacy_enabled:
                 logger.warning(
-                    "⚠️ Using legacy 'adaptive_crop.enabled' config. "
-                    "Consider migrating to 'roi_strategy.mode' structure (see config.yaml.example)"
+                    "Legacy config detected: 'adaptive_crop.enabled'",
+                    extra={
+                        "component": "legacy_config",
+                        "event": "legacy_config_detected",
+                        "legacy_field": "adaptive_crop.enabled",
+                        "new_field": "roi_strategy.mode",
+                        "migration_required": True,
+                        "reference": "config.yaml.example"
+                    }
                 )

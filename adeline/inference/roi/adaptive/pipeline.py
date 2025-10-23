@@ -78,7 +78,18 @@ def crop_frame_if_roi(
 
     # Validar crop no vacío
     if cropped_image.size == 0:
-        logger.warning(f"Empty crop for ROI {roi}, using full frame")
+        logger.warning(
+            "Empty crop detected, using full frame",
+            extra={
+                "component": "adaptive_roi",
+                "event": "empty_crop",
+                "roi_x1": roi.x1,
+                "roi_y1": roi.y1,
+                "roi_x2": roi.x2,
+                "roi_y2": roi.y2,
+                "description": "ROI resulted in empty image, falling back to full frame"
+            }
+        )
         return video_frame, None
 
     # Resize condicional (solo si resize_to_model=True y ROI < model_size)
@@ -99,8 +110,15 @@ def crop_frame_if_roi(
             source_id = video_frame.source_id
             if source_id not in _resize_logged_sources:
                 logger.info(
-                    f"🔍 Zoom aplicado (source {source_id}): "
-                    f"ROI {original_size}×{original_size} → {model_size}×{model_size}"
+                    "ROI zoom applied",
+                    extra={
+                        "component": "adaptive_roi",
+                        "event": "roi_zoom_applied",
+                        "source_id": source_id,
+                        "original_size": original_size,
+                        "resized_size": model_size,
+                        "description": f"ROI resized from {original_size}x{original_size} to {model_size}x{model_size}"
+                    }
                 )
                 _resize_logged_sources.add(source_id)
 
@@ -437,13 +455,28 @@ class AdaptiveInferenceHandler(BaseInferenceHandler):
     def enable(self):
         """Habilita adaptive ROI."""
         self._enabled = True
-        logger.info("✅ Adaptive ROI enabled")
+        logger.info(
+            "Adaptive ROI enabled",
+            extra={
+                "component": "adaptive_roi",
+                "event": "roi_enabled",
+                "enabled": True
+            }
+        )
 
     def disable(self):
         """Deshabilita adaptive ROI y resetea state a full frame."""
         self._enabled = False
         self.roi_state.reset()
-        logger.info("🔲 Adaptive ROI disabled (reset to full frame)")
+        logger.info(
+            "Adaptive ROI disabled",
+            extra={
+                "component": "adaptive_roi",
+                "event": "roi_disabled",
+                "enabled": False,
+                "description": "ROI reset to full frame"
+            }
+        )
 
     def __call__(self, video_frames: List[VideoFrame]) -> List[dict]:
         """Callable interface para InferencePipeline"""

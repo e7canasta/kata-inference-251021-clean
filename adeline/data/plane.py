@@ -20,6 +20,11 @@ from inference.core.interfaces.camera.entities import VideoFrame
 from inference.core.interfaces.stream.watchdog import BasePipelineWatchDog
 
 from .publishers import DetectionPublisher, MetricsPublisher
+from adeline.logging import (
+    log_mqtt_publish,
+    log_pipeline_metrics,
+    log_error_with_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,30 +81,76 @@ class MQTTDataPlane:
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         """Callback cuando se conecta al broker"""
         if rc == 0:
-            logger.info(f"✅ Data Plane conectado a {self.broker_host}:{self.broker_port}")
+            logger.info(
+                "✅ Data Plane conectado",
+                extra={
+                    "component": "data_plane",
+                    "event": "connected",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port,
+                }
+            )
             self._connected.set()
         else:
-            logger.error(f"❌ Error conectando Data Plane al broker MQTT: {rc}")
+            log_error_with_context(
+                logger,
+                message=f"❌ Error conectando Data Plane al broker MQTT: {rc}",
+                error_code=f"mqtt_rc_{rc}",
+                component="data_plane",
+                event="connection_failed",
+                broker_host=self.broker_host,
+                broker_port=self.broker_port,
+            )
 
     def _on_disconnect(self, client, userdata, rc, properties=None):
         """Callback cuando se desconecta del broker"""
-        logger.warning(f"⚠️ Data Plane desconectado (rc={rc})")
+        logger.warning(
+            "⚠️ Data Plane desconectado",
+            extra={
+                "component": "data_plane",
+                "event": "disconnected",
+                "rc": rc,
+            }
+        )
         self._connected.clear()
 
     def connect(self, timeout: float = 5.0) -> bool:
         """Conecta al broker MQTT"""
         try:
-            logger.info(f"🔌 Conectando Data Plane a: {self.broker_host}:{self.broker_port}")
+            logger.info(
+                "🔌 Conectando Data Plane",
+                extra={
+                    "component": "data_plane",
+                    "event": "connecting",
+                    "broker_host": self.broker_host,
+                    "broker_port": self.broker_port,
+                    "timeout": timeout,
+                }
+            )
             self.client.connect(self.broker_host, self.broker_port, keepalive=60)
             self.client.loop_start()
             return self._connected.wait(timeout=timeout)
         except Exception as e:
-            logger.error(f"❌ Error conectando Data Plane: {e}")
+            log_error_with_context(
+                logger,
+                message="❌ Error conectando Data Plane",
+                exception=e,
+                component="data_plane",
+                event="connection_error",
+                broker_host=self.broker_host,
+                broker_port=self.broker_port,
+            )
             return False
 
     def disconnect(self):
         """Desconecta del broker MQTT"""
-        logger.info("🔌 Desconectando Data Plane...")
+        logger.info(
+            "🔌 Desconectando Data Plane",
+            extra={
+                "component": "data_plane",
+                "event": "disconnecting",
+            }
+        )
         self.client.loop_stop()
         self.client.disconnect()
 
@@ -120,7 +171,14 @@ class MQTTDataPlane:
             video_frame: Frame(s) de video (opcional)
         """
         if not self._connected.is_set():
-            logger.warning("⚠️ Data Plane no conectado, mensaje descartado")
+            logger.warning(
+                "⚠️ Data Plane no conectado, mensaje descartado",
+                extra={
+                    "component": "data_plane",
+                    "event": "publish_skipped",
+                    "reason": "not_connected",
+                }
+            )
             return
 
         try:
@@ -134,11 +192,36 @@ class MQTTDataPlane:
                 qos=self.qos
             )
 
-            if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                logger.warning(f"⚠️ Error publicando mensaje: {result.rc}")
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                # Log exitoso con helper
+                num_detections = len(message.get('detections', []))
+                log_mqtt_publish(
+                    logger,
+                    topic=self.data_topic,
+                    qos=self.qos,
+                    payload_size=len(json.dumps(message, default=str)),
+                    num_detections=num_detections,
+                )
+            else:
+                logger.warning(
+                    "⚠️ Error publicando mensaje",
+                    extra={
+                        "component": "data_plane",
+                        "event": "publish_failed",
+                        "mqtt_rc": result.rc,
+                        "topic": self.data_topic,
+                    }
+                )
 
         except Exception as e:
-            logger.error(f"❌ Error en publish_inference: {e}")
+            log_error_with_context(
+                logger,
+                message="❌ Error en publish_inference",
+                exception=e,
+                component="data_plane",
+                event="publish_exception",
+                topic=self.data_topic,
+            )
 
     def set_watchdog(self, watchdog: BasePipelineWatchDog):
         """
@@ -150,7 +233,13 @@ class MQTTDataPlane:
             watchdog: Instancia de BasePipelineWatchDog del pipeline
         """
         self.metrics_publisher.set_watchdog(watchdog)
-        logger.info("📊 Watchdog conectado al Data Plane")
+        logger.info(
+            "📊 Watchdog conectado al Data Plane",
+            extra={
+                "component": "data_plane",
+                "event": "watchdog_connected",
+            }
+        )
 
     def publish_metrics(self):
         """
@@ -163,11 +252,25 @@ class MQTTDataPlane:
         Publica en topic: inference/data/metrics
         """
         if not self.metrics_publisher.has_watchdog:
-            logger.warning("⚠️ Watchdog no configurado, no se pueden publicar métricas")
+            logger.warning(
+                "⚠️ Watchdog no configurado, no se pueden publicar métricas",
+                extra={
+                    "component": "data_plane",
+                    "event": "publish_metrics_skipped",
+                    "reason": "no_watchdog",
+                }
+            )
             return
 
         if not self._connected.is_set():
-            logger.warning("⚠️ Data Plane no conectado, métricas descartadas")
+            logger.warning(
+                "⚠️ Data Plane no conectado, métricas descartadas",
+                extra={
+                    "component": "data_plane",
+                    "event": "publish_metrics_skipped",
+                    "reason": "not_connected",
+                }
+            )
             return
 
         try:
@@ -175,7 +278,13 @@ class MQTTDataPlane:
             message = self.metrics_publisher.format_message()
 
             if message is None:
-                logger.warning("⚠️ No se pudo formatear mensaje de métricas")
+                logger.warning(
+                    "⚠️ No se pudo formatear mensaje de métricas",
+                    extra={
+                        "component": "data_plane",
+                        "event": "format_failed",
+                    }
+                )
                 return
 
             # Publicar (infraestructura MQTT)
@@ -186,13 +295,36 @@ class MQTTDataPlane:
             )
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                # Usar helper para métricas del pipeline
                 throughput = message.get('throughput_fps', 0)
-                logger.info(f"📊 Métricas publicadas: {throughput:.2f} FPS")
+                latency_ms = message.get('latency_ms', None)
+
+                log_pipeline_metrics(
+                    logger,
+                    fps=throughput,
+                    latency_ms=latency_ms,
+                    component="data_plane",
+                )
             else:
-                logger.warning(f"⚠️ Error publicando métricas: {result.rc}")
+                logger.warning(
+                    "⚠️ Error publicando métricas",
+                    extra={
+                        "component": "data_plane",
+                        "event": "publish_metrics_failed",
+                        "mqtt_rc": result.rc,
+                        "topic": self.metrics_topic,
+                    }
+                )
 
         except Exception as e:
-            logger.error(f"❌ Error en publish_metrics: {e}", exc_info=True)
+            log_error_with_context(
+                logger,
+                message="❌ Error en publish_metrics",
+                exception=e,
+                component="data_plane",
+                event="publish_metrics_exception",
+                topic=self.metrics_topic,
+            )
 
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estadísticas del data plane"""

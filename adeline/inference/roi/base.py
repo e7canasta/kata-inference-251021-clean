@@ -74,7 +74,15 @@ def validate_and_create_roi_strategy(
         )
 
     if mode == "none":
-        logger.info("📦 ROI Strategy: NONE (full frame)")
+        logger.info(
+            "ROI strategy selected: NONE",
+            extra={
+                "component": "roi_factory",
+                "event": "roi_strategy_selected",
+                "roi_mode": "none",
+                "description": "Full frame inference (no cropping)"
+            }
+        )
         return None
 
     if mode == "adaptive":
@@ -91,17 +99,20 @@ def validate_and_create_roi_strategy(
                 f"min_roi_multiple ({config.adaptive_min_roi_multiple})"
             )
 
-        # Log resize_to_model info
-        resize_info = ""
-        if config.adaptive_resize_to_model:
-            resize_info = f" | 🔍 resize_to_model=TRUE (zoom ROI → {config.imgsz}×{config.imgsz})"
-        else:
-            resize_info = f" | resize_to_model=false (padding con negro)"
-
         logger.info(
-            f"🔲 ROI Strategy: ADAPTIVE (margin={config.adaptive_margin}, "
-            f"smoothing={config.adaptive_smoothing}, "
-            f"multiples={config.adaptive_min_roi_multiple}-{config.adaptive_max_roi_multiple}){resize_info}"
+            "ROI strategy selected: ADAPTIVE",
+            extra={
+                "component": "roi_factory",
+                "event": "roi_strategy_selected",
+                "roi_mode": "adaptive",
+                "margin": config.adaptive_margin,
+                "smoothing": config.adaptive_smoothing,
+                "min_roi_multiple": config.adaptive_min_roi_multiple,
+                "max_roi_multiple": config.adaptive_max_roi_multiple,
+                "resize_to_model": config.adaptive_resize_to_model,
+                "imgsz": config.imgsz,
+                "description": f"Dynamic ROI tracking with zoom {'enabled' if config.adaptive_resize_to_model else 'disabled'}"
+            }
         )
 
         return ROIState(
@@ -127,16 +138,20 @@ def validate_and_create_roi_strategy(
                 f"Must be in [0.0, 1.0] with y_min < y_max"
             )
 
-        # Log resize_to_model info
-        resize_info = ""
-        if config.fixed_resize_to_model:
-            resize_info = f" | 🔍 resize_to_model=TRUE (zoom ROI → {config.imgsz}×{config.imgsz})"
-        else:
-            resize_info = f" | resize_to_model=false (padding con negro)"
-
         logger.info(
-            f"📍 ROI Strategy: FIXED (x: {config.fixed_x_min:.2f}-{config.fixed_x_max:.2f}, "
-            f"y: {config.fixed_y_min:.2f}-{config.fixed_y_max:.2f}){resize_info}"
+            "ROI strategy selected: FIXED",
+            extra={
+                "component": "roi_factory",
+                "event": "roi_strategy_selected",
+                "roi_mode": "fixed",
+                "x_min": config.fixed_x_min,
+                "y_min": config.fixed_y_min,
+                "x_max": config.fixed_x_max,
+                "y_max": config.fixed_y_max,
+                "resize_to_model": config.fixed_resize_to_model,
+                "imgsz": config.imgsz,
+                "description": f"Static ROI with zoom {'enabled' if config.fixed_resize_to_model else 'disabled'}"
+            }
         )
 
         return FixedROIState(

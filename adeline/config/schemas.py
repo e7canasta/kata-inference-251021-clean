@@ -341,18 +341,34 @@ class ROIStrategySettings(BaseModel):
 # ============================================================================
 
 class LoggingSettings(BaseModel):
-    """Logging configuration"""
+    """Logging configuration (JSON structured logging)"""
     level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field(
         default='INFO',
         description="Log level"
     )
-    format: str = Field(
-        default='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        description="Log format string"
+    json_indent: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=4,
+        description="JSON indent for pretty-print (None=compact, 2=readable)"
     )
     paho_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field(
         default='WARNING',
         description="Paho MQTT library log level"
+    )
+    file: Optional[str] = Field(
+        default=None,
+        description="Path to log file (None=stdout). If specified, enables file rotation."
+    )
+    max_bytes: int = Field(
+        default=10485760,  # 10 MB
+        ge=1024,
+        description="Maximum bytes per log file before rotation (default 10 MB)"
+    )
+    backup_count: int = Field(
+        default=5,
+        ge=0,
+        description="Number of backup log files to keep"
     )
 
 
@@ -496,8 +512,12 @@ class AdelineConfig(BaseModel):
 
         # Logging
         legacy.LOG_LEVEL = self.logging.level
-        legacy.LOG_FORMAT = self.logging.format
+        legacy.LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'  # DEPRECATED
+        legacy.JSON_INDENT = self.logging.json_indent
         legacy.PAHO_LOG_LEVEL = self.logging.paho_level
+        legacy.LOG_FILE = self.logging.file
+        legacy.LOG_MAX_BYTES = self.logging.max_bytes
+        legacy.LOG_BACKUP_COUNT = self.logging.backup_count
 
         # Stabilization
         legacy.STABILIZATION_MODE = self.detection_stabilization.mode

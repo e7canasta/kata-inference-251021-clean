@@ -1,0 +1,72 @@
+# Logrotate configuration for Adeline
+# ====================================
+#
+# Installation:
+#   sudo cp config/logrotate.d/adeline /etc/logrotate.d/adeline
+#   sudo chmod 644 /etc/logrotate.d/adeline
+#
+# Testing:
+#   sudo logrotate -d /etc/logrotate.d/adeline  # Dry run
+#   sudo logrotate -f /etc/logrotate.d/adeline  # Force rotation
+#
+# Cron:
+#   logrotate runs daily via /etc/cron.daily/logrotate
+
+/var/log/adeline/adeline.log {
+    # Rotation strategy
+    daily               # Rotar diariamente (alternativa: weekly, monthly)
+    rotate 7            # Mantener 7 archivos rotados (7 días de historia)
+    size 10M            # Rotar si el archivo supera 10 MB (incluso si no es daily)
+    maxage 30           # Eliminar archivos mayores a 30 días
+
+    # Compression
+    compress            # Comprimir archivos rotados con gzip
+    delaycompress       # No comprimir el más reciente (útil para debugging)
+    compresscmd /bin/gzip
+    compressext .gz
+
+    # File permissions
+    missingok           # No error si el archivo no existe
+    notifempty          # No rotar si el archivo está vacío
+    create 0640 adeline adeline  # Crear nuevo archivo con permisos 640, owner adeline:adeline
+
+    # Postrotate hook (opcional)
+    # Uncomment si Adeline necesita reabrir el archivo (ej: usando signals)
+    # postrotate
+    #     # Opción 1: Enviar signal a proceso para reabrir logs
+    #     killall -USR1 python  # Si Adeline maneja SIGUSR1 para reopen
+    #
+    #     # Opción 2: Restart service (solo si es rápido)
+    #     # systemctl reload adeline.service
+    # endscript
+
+    # Dateformat (opcional - agregar fecha al nombre)
+    # dateext
+    # dateformat -%Y-%m-%d
+    # Resultado: adeline.log-2025-10-22.gz
+}
+
+# Configuración alternativa: size-based (sin daily)
+# /var/log/adeline/adeline.log {
+#     size 10M
+#     rotate 5
+#     compress
+#     delaycompress
+#     missingok
+#     notifempty
+#     create 0640 adeline adeline
+# }
+
+# Configuración para múltiples archivos
+# /var/log/adeline/*.log {
+#     daily
+#     rotate 7
+#     size 10M
+#     compress
+#     missingok
+#     notifempty
+#     sharedscripts
+#     postrotate
+#         systemctl reload adeline.service
+#     endscript
+# }

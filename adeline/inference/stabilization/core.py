@@ -31,6 +31,7 @@ import logging
 import time
 
 from .matching import calculate_iou, HierarchicalMatcher
+from adeline.logging import log_stabilization_stats, log_error_with_context
 
 logger = logging.getLogger(__name__)
 
@@ -240,11 +241,17 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         )
 
         logger.info(
-            f"TemporalHysteresisStabilizer initialized: "
-            f"min_frames={min_frames}, max_gap={max_gap}, "
-            f"appear_conf={appear_conf:.2f}, persist_conf={persist_conf:.2f}, "
-            f"iou_threshold={iou_threshold:.2f}, "
-            f"matcher_strategies={[s.get_name() for s in self.matcher.strategies]}"
+            "TemporalHysteresisStabilizer initialized",
+            extra={
+                "component": "stabilization",
+                "event": "initialized",
+                "min_frames": min_frames,
+                "max_gap": max_gap,
+                "appear_conf": appear_conf,
+                "persist_conf": persist_conf,
+                "iou_threshold": iou_threshold,
+                "matcher_strategies": [s.get_name() for s in self.matcher.strategies],
+            }
         )
 
     def process(
@@ -317,9 +324,16 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
                             track.confirmed = True
                             stats['total_confirmed'] += 1
                             logger.debug(
-                                f"✅ Track confirmed: {class_name} after {track.consecutive_frames} frames "
-                                f"(avg_conf={track.avg_confidence:.2f}, match_score={match_score:.2f}, "
-                                f"strategy={strategy_name})"
+                                f"✅ Track confirmed: {class_name}",
+                                extra={
+                                    "component": "stabilization",
+                                    "event": "track_confirmed",
+                                    "class_name": class_name,
+                                    "consecutive_frames": track.consecutive_frames,
+                                    "avg_confidence": track.avg_confidence,
+                                    "match_score": match_score,
+                                    "strategy": strategy_name,
+                                }
                             )
                     else:
                         # Confianza insuficiente, marcar missed
@@ -338,12 +352,26 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
                     tracks[class_name].append(new_track)
 
                     logger.debug(
-                        f"🆕 New track: {class_name} conf={confidence:.2f} (needs {self.min_frames} frames)"
+                        f"🆕 New track: {class_name}",
+                        extra={
+                            "component": "stabilization",
+                            "event": "new_track",
+                            "class_name": class_name,
+                            "confidence": confidence,
+                            "min_frames_needed": self.min_frames,
+                        }
                     )
                 else:
                     stats['total_ignored'] += 1
                     logger.debug(
-                        f"⏭️ Ignored detection: {class_name} conf={confidence:.2f} < {self.appear_conf:.2f}"
+                        f"⏭️ Ignored detection: {class_name}",
+                        extra={
+                            "component": "stabilization",
+                            "event": "ignored_detection",
+                            "class_name": class_name,
+                            "confidence": confidence,
+                            "appear_threshold": self.appear_conf,
+                        }
                     )
 
         # 3. Update unmatched tracks (incrementar gap)
@@ -386,8 +414,14 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             if removed_count > 0:
                 stats['total_removed'] += removed_count
                 logger.debug(
-                    f"🗑️ Removed {removed_count} expired tracks: {class_name} "
-                    f"(gap > {self.max_gap})"
+                    f"🗑️ Removed expired tracks: {class_name}",
+                    extra={
+                        "component": "stabilization",
+                        "event": "tracks_removed",
+                        "class_name": class_name,
+                        "removed_count": removed_count,
+                        "max_gap": self.max_gap,
+                    }
                 )
 
             # Limpiar clase si no hay tracks
@@ -397,9 +431,14 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
         # Update stats
         stats['active_tracks'] = sum(len(tl) for tl in tracks.values())
 
-        logger.debug(
-            f"Stabilization: {len(detections)} raw → {len(stabilized_detections)} stabilized "
-            f"(active_tracks={stats['active_tracks']})"
+        # Log resumen usando helper
+        log_stabilization_stats(
+            logger,
+            raw_count=len(detections),
+            stabilized_count=len(stabilized_detections),
+            active_tracks=stats['active_tracks'],
+            total_confirmed=stats['total_confirmed'],
+            total_removed=stats['total_removed'],
         )
 
         return stabilized_detections
@@ -410,14 +449,27 @@ class TemporalHysteresisStabilizer(BaseDetectionStabilizer):
             # Reset all sources
             self._tracks.clear()
             self._stats.clear()
-            logger.info("🔄 All stabilization tracks reset")
+            logger.info(
+                "🔄 All stabilization tracks reset",
+                extra={
+                    "component": "stabilization",
+                    "event": "reset_all",
+                }
+            )
         else:
             # Reset specific source
             if source_id in self._tracks:
                 del self._tracks[source_id]
             if source_id in self._stats:
                 del self._stats[source_id]
-            logger.info(f"🔄 Stabilization tracks reset for source {source_id}")
+            logger.info(
+                f"🔄 Stabilization tracks reset",
+                extra={
+                    "component": "stabilization",
+                    "event": "reset_source",
+                    "source_id": source_id,
+                }
+            )
 
     def get_stats(self, source_id: int = 0) -> Dict[str, Any]:
         """Retorna estadísticas de estabilización"""
@@ -494,7 +546,14 @@ def create_stabilization_strategy(
         )
 
     if mode == 'none':
-        logger.info("🔲 Stabilization: NONE (baseline, no filtering)")
+        logger.info(
+            "🔲 Stabilization: NONE (baseline, no filtering)",
+            extra={
+                "component": "stabilization",
+                "event": "factory_create",
+                "mode": "none",
+            }
+        )
         return NoOpStabilizer()
 
     if mode == 'temporal':
@@ -514,10 +573,17 @@ def create_stabilization_strategy(
             )
 
         logger.info(
-            f"⏱️ Stabilization: TEMPORAL+HYSTERESIS+IoU "
-            f"(min_frames={config.temporal_min_frames}, max_gap={config.temporal_max_gap}, "
-            f"appear={config.hysteresis_appear_conf:.2f}, persist={config.hysteresis_persist_conf:.2f}, "
-            f"iou_threshold={config.iou_threshold:.2f})"
+            "⏱️ Stabilization: TEMPORAL+HYSTERESIS+IoU",
+            extra={
+                "component": "stabilization",
+                "event": "factory_create",
+                "mode": "temporal",
+                "min_frames": config.temporal_min_frames,
+                "max_gap": config.temporal_max_gap,
+                "appear_conf": config.hysteresis_appear_conf,
+                "persist_conf": config.hysteresis_persist_conf,
+                "iou_threshold": config.iou_threshold,
+            }
         )
 
         return TemporalHysteresisStabilizer(

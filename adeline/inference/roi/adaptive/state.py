@@ -136,8 +136,15 @@ class ROIState:
         # Validación: verificar que sigue siendo cuadrado (debug)
         if not new_roi.is_square:
             logger.warning(
-                f"⚠️ ROI no es cuadrado después de expand: {new_roi.width}×{new_roi.height} "
-                f"(diff: {abs(new_roi.width - new_roi.height)}px)"
+                "ROI not square after expand",
+                extra={
+                    "component": "roi_state",
+                    "event": "roi_not_square_warning",
+                    "source_id": source_id,
+                    "roi_width": new_roi.width,
+                    "roi_height": new_roi.height,
+                    "diff_px": abs(new_roi.width - new_roi.height),
+                }
             )
 
         # 4. Validar tamaño mínimo
@@ -148,7 +155,15 @@ class ROIState:
         if roi_area < self._min_roi_size * frame_area:
             # ROI muy pequeño, usar frame completo
             logger.debug(
-                f"Source {source_id}: ROI too small ({roi_area}/{frame_area}), using full frame"
+                "ROI too small, using full frame",
+                extra={
+                    "component": "roi_state",
+                    "event": "roi_too_small",
+                    "source_id": source_id,
+                    "roi_area": roi_area,
+                    "frame_area": frame_area,
+                    "min_roi_size": self._min_roi_size,
+                }
             )
             self._roi_by_source[source_id] = None
             return
@@ -160,8 +175,18 @@ class ROIState:
 
         self._roi_by_source[source_id] = new_roi
         logger.debug(
-            f"Source {source_id}: ROI updated to ({new_roi.x1},{new_roi.y1})-({new_roi.x2},{new_roi.y2}) "
-            f"[{new_roi.width}×{new_roi.height}]"
+            "ROI updated",
+            extra={
+                "component": "roi_state",
+                "event": "roi_updated",
+                "source_id": source_id,
+                "roi_x1": new_roi.x1,
+                "roi_y1": new_roi.y1,
+                "roi_x2": new_roi.x2,
+                "roi_y2": new_roi.y2,
+                "roi_width": new_roi.width,
+                "roi_height": new_roi.height,
+            }
         )
 
     def reset(self, source_id: Optional[int] = None):
@@ -173,7 +198,20 @@ class ROIState:
         """
         if source_id is None:
             self._roi_by_source.clear()
-            logger.info("ROI state reset for all sources")
+            logger.info(
+                "ROI state reset for all sources",
+                extra={
+                    "component": "roi_state",
+                    "event": "roi_state_reset_all",
+                }
+            )
         else:
             self._roi_by_source[source_id] = None
-            logger.info(f"ROI state reset for source {source_id}")
+            logger.info(
+                "ROI state reset for source",
+                extra={
+                    "component": "roi_state",
+                    "event": "roi_state_reset_source",
+                    "source_id": source_id,
+                }
+            )

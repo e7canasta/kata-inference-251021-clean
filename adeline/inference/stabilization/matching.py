@@ -320,8 +320,13 @@ class HierarchicalMatcher:
             self.strategies = strategies
 
         logger.debug(
-            f"HierarchicalMatcher initialized with {len(self.strategies)} strategies: "
-            f"{[s.get_name() for s in self.strategies]}"
+            "HierarchicalMatcher initialized",
+            extra={
+                "component": "matching_strategy",
+                "event": "matcher_initialized",
+                "num_strategies": len(self.strategies),
+                "strategies": [s.get_name() for s in self.strategies]
+            }
         )
 
     def find_best_match(
@@ -371,8 +376,14 @@ class HierarchicalMatcher:
             # Si encontramos match con esta strategy, retornar
             if best_track is not None:
                 logger.debug(
-                    f"Match found with {strategy.get_name()}: "
-                    f"score={best_score:.2f}, class={detection.get('class')}"
+                    "Match found",
+                    extra={
+                        "component": "matching_strategy",
+                        "event": "match_found",
+                        "strategy": strategy.get_name(),
+                        "score": best_score,
+                        "class_name": detection.get('class', 'unknown')
+                    }
                 )
                 return (best_track, best_idx, best_score, strategy.get_name())
 

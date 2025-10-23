@@ -1,0 +1,194 @@
+# InferencePipeline Configuration
+# ================================
+
+# Inference Pipeline Settings
+pipeline:
+  # RTSP video source URL (via go2rtc proxy)
+  rtsp_url: "rtsp://127.0.0.1:8554/live"
+
+  # YOLO model ID from Roboflow
+  # Available models: yolov8n-640, yolov8s-640, yolov11n-640, yolov11s-640
+  model_id: "yolov12x-320"
+
+  # Maximum frames per second to process
+  # Lower values reduce CPU/GPU usage but decrease responsiveness
+  max_fps: 2
+
+  # Enable visualization window with bounding boxes
+  enable_visualization: true
+
+  # Display performance statistics (FPS, latency) on visualization
+  display_statistics: true
+
+
+# Adaptive Crop (Custom Logic - EXPERIMENTAL)
+# IMPORTANTE: Por ahora mantener enabled: false (usa pipeline standard)
+# adaptive_crop:
+#   enabled: true  # false = standard pipeline (actual comportamiento)
+#   # show_statistics: true
+#  margin: 0.2
+#  smoothing: 0.3
+
+roi_strategy:
+    mode: "fixed"
+    fixed:
+      x_min: 0.2
+      y_min: 0.2
+      x_max: 0.6
+      y_max: 0.95
+      resize_to_model: true
+
+# 05 05 10 10 ABAJO - DERECHA
+
+
+# ============================================================================
+# Detection Stabilization (Reduce Flickering/Parpadeos)
+# ============================================================================
+# Estabiliza detecciones para reducir parpadeos con modelos/umbrales agresivos
+#
+# TU CASO: confidence=0.10 (muy bajo) → muchas detecciones ruidosas
+# Stabilization filtra detecciones intermitentes (solo aparecen 1-2 frames)
+#
+detection_stabilization:
+  # Estrategia: temporal = Temporal Filtering + Hysteresis
+  mode: "temporal"  # "none" para deshabilitar
+
+  # ========================================================================
+  # TEMPORAL FILTERING: Requiere N frames consecutivos para confirmar
+  # ========================================================================
+  temporal:
+    # Frames consecutivos requeridos para confirmar detección
+    # 3 frames @ 2fps = 1.5s de latencia (balance estabilidad/latencia)
+    #
+    # Si quieres MÁS estabilidad (pero más latencia): 4-5 frames
+    # Si quieres MENOS latencia (pero más parpadeos): 2 frames
+    min_frames: 3
+
+    # Frames sin detección antes de eliminar track
+    # 2 frames @ 2fps = 1 segundo de tolerancia
+    #
+    # Tolera oclusiones cortas (persona pasa detrás de objeto)
+    # Si quieres MÁS tolerancia: 3-5 frames
+    # Si quieres eliminar más rápido: 1 frame
+    max_gap: 2
+
+  # ========================================================================
+  # HYSTERESIS: Umbrales de confianza adaptativos
+  # ========================================================================
+  # Concepto: Umbral alto para APARECER, bajo para PERSISTIR
+  #
+  hysteresis:
+    # Umbral para nueva detección (más alto que model.confidence)
+    # 0.15 > 0.10 → filtra ruido inicial de detecciones débiles
+    #
+    # Detecciones con conf=0.10-0.15 que solo aparecen 1-2 frames → IGNORADAS
+    # Detecciones con conf>=0.15 consistentes → ACEPTADAS
+    #
+    # Si ves que PIERDES detecciones válidas: bajar a 0.12-0.13
+    # Si aún hay mucho ruido: subir a 0.18-0.20
+    # appear_confidence: 0.15
+    appear_confidence: 0.5
+
+    # Umbral para detección confirmada (más bajo que appear_confidence)
+    # 0.08 < 0.10 → mantiene tracks incluso si confianza baja temporalmente
+    #
+    # Una vez confirmado, tolera frames con conf=0.08-0.10
+    # Previene parpadeos cuando confianza oscila 0.09 → 0.11 → 0.09
+    #
+    # Si tracks desaparecen muy rápido: bajar a 0.05-0.06
+    # Si quieres más strictness: subir a 0.10-0.12
+    # persist_confidence: 0.08
+    persist_confidence: 0.3
+
+  iou:
+    threshold: 0.3
+
+
+# MQTT Broker Configuration
+mqtt:
+  broker:
+    # MQTT broker hostname or IP
+    host: "localhost"
+
+    # MQTT broker port (default: 1883)
+    port: 1883
+
+    # Username for MQTT authentication (leave empty if not needed)
+    # For security, consider moving to .env as MQTT_USERNAME
+    username: null
+
+    # Password for MQTT authentication (leave empty if not needed)
+    # For security, consider moving to .env as MQTT_PASSWORD
+    password: null
+
+  topics:
+    # Topic for receiving control commands (pause/resume/stop/metrics)
+    control_commands: "inference/control/commands"
+
+    # Topic for publishing pipeline status updates
+    control_status: "inference/control/status"
+
+    # Topic for publishing inference data (detections)
+    data: "inference/data/detections"
+
+    # Topic for publishing pipeline metrics (throughput, latency)
+    metrics: "inference/data/metrics"
+
+  qos:
+    # QoS level for control plane (0, 1, or 2)
+    # 1 = at least once delivery (recommended for commands)
+    control: 1
+
+    # QoS level for data plane (0, 1, or 2)
+    # 0 = fire and forget (recommended for high-frequency data)
+    data: 0
+
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Reduce paho-mqtt logging verbosity
+  paho_level: "WARNING"
+
+
+# Local Models Configuration
+models:
+  # Use local ONNX model (true) or Roboflow cloud model (false)
+  use_local: true
+
+  # Path to local ONNX model (required if use_local is true)
+  local_path: "models/yolo12m-320.onnx"
+
+  # Image size for inference (must match exported model)
+  imgsz: 320
+
+  # Confidence threshold (0.0 - 1.0)
+  confidence: 0.10
+
+  # IOU threshold for NMS (0.0 - 1.0)
+  iou_threshold: 0.10
+
+
+# Model Environment Variables
+# Disable unused models to reduce dependencies and startup time
+models_disabled:
+  disabled:
+    - PALIGEMMA
+    - FLORENCE2
+    - QWEN_2_5
+    - CORE_MODEL_SAM
+    - CORE_MODEL_SAM2
+    - CORE_MODEL_CLIP
+    - CORE_MODEL_GAZE
+    - SMOLVLM2
+    - DEPTH_ESTIMATION
+    - MOONDREAM2
+    - CORE_MODEL_TROCR
+    - CORE_MODEL_GROUNDINGDINO
+    - CORE_MODEL_YOLO_WORLD
+    - CORE_MODEL_PE

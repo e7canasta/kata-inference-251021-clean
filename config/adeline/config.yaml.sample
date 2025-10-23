@@ -1,0 +1,136 @@
+# Adeline Inference Pipeline Configuration
+# ==========================================
+#
+# Validated by Pydantic - invalid values will fail on startup with clear error messages.
+# See config/schemas.py for all validation rules.
+
+# ============================================================================
+# Pipeline Settings
+# ============================================================================
+pipeline:
+  rtsp_url: "rtsp://127.0.0.1:8554/live"
+  model_id: "yolov11n-640"  # Roboflow model ID (if not using local)
+  max_fps: 2  # Range: 1-30
+  enable_visualization: true
+  display_statistics: true
+
+# ============================================================================
+# Model Settings
+# ============================================================================
+models:
+  # Local ONNX vs Roboflow
+  use_local: false  # Set to true to use local ONNX model
+  local_path: "models/yolov11n-320.onnx"
+
+  # Model parameters
+  imgsz: 320  # Must be multiple of 32 (YOLO requirement)
+  confidence: 0.25  # Range: 0.0-1.0
+  iou_threshold: 0.45  # Range: 0.0-1.0 (NMS)
+
+# ============================================================================
+# MQTT Settings
+# ============================================================================
+mqtt:
+  broker:
+    host: "localhost"
+    port: 1883  # Range: 1-65535
+    # Credentials from .env (MQTT_USERNAME, MQTT_PASSWORD)
+    username: null
+    password: null
+
+  topics:
+    control_commands: "inference/control/commands"
+    control_status: "inference/control/status"
+    data: "inference/data/detections"
+    metrics: "inference/data/metrics"
+
+  qos:
+    control: 1  # Reliable (ACK) for commands
+    data: 0     # Fast (no ACK) for data stream
+
+# ============================================================================
+# Detection Stabilization
+# ============================================================================
+# Reduces flickering and false positives via temporal filtering
+detection_stabilization:
+  mode: "temporal"  # Options: "none", "temporal"
+
+  temporal:
+    min_frames: 3  # Consecutive frames to confirm detection (≥1)
+    max_gap: 2     # Gap tolerance before removing track (≥0)
+
+  hysteresis:
+    appear_confidence: 0.5   # High threshold for NEW detections (0.0-1.0)
+    persist_confidence: 0.3  # Low threshold for CONFIRMED tracks (0.0-1.0)
+                             # ⚠️ MUST BE: persist_confidence <= appear_confidence
+
+  iou:
+    threshold: 0.3  # Minimum IoU to match same object (0.0-1.0)
+
+# ============================================================================
+# ROI Strategy
+# ============================================================================
+# Region of Interest for focused inference
+roi_strategy:
+  mode: "none"  # Options: "none", "adaptive", "fixed"
+
+  # Adaptive ROI (dynamic, follows detections)
+  adaptive:
+    margin: 0.2              # Expansion margin around detections (0.0-1.0)
+    smoothing: 0.3           # Temporal smoothing factor (0.0-1.0)
+    min_roi_multiple: 1      # Min ROI size (multiple of imgsz, ≥1)
+    max_roi_multiple: 4      # Max ROI size (multiple of imgsz, ≥1)
+                             # ⚠️ MUST BE: min_roi_multiple <= max_roi_multiple
+    show_statistics: true
+    resize_to_model: false   # false=padding, true=zoom
+
+  # Fixed ROI (static region, normalized coordinates)
+  fixed:
+    x_min: 0.2  # Left boundary (0.0-1.0)
+    y_min: 0.2  # Top boundary (0.0-1.0)
+    x_max: 0.8  # Right boundary (0.0-1.0)
+    y_max: 0.8  # Bottom boundary (0.0-1.0)
+              # ⚠️ MUST BE: x_min < x_max, y_min < y_max
+    show_overlay: true
+    resize_to_model: false
+
+# ============================================================================
+# Logging (Structured JSON)
+# ============================================================================
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # DEPRECATED (usar JSON)
+  paho_level: "WARNING"  # MQTT library log level
+
+  # JSON logging (producción)
+  json_indent: null  # null=compact (producción), 2=pretty (desarrollo)
+
+  # File rotation (opcional - si null, logs van a stdout)
+  file: null  # Ej: "logs/adeline.log" para habilitar file logging
+  max_bytes: 10485760  # 10 MB (10 * 1024 * 1024)
+  backup_count: 5  # Mantener 5 backups (total: 50 MB)
+
+  # Ejemplo producción:
+  # file: "/var/log/adeline/adeline.log"
+  # max_bytes: 10485760  # 10 MB
+  # backup_count: 7  # 7 backups (70 MB total)
+
+# ============================================================================
+# Models Disabled (prevents ModelDependencyMissing warnings)
+# ============================================================================
+models_disabled:
+  disabled:
+    - PALIGEMMA
+    - FLORENCE2
+    - QWEN_2_5
+    - CORE_MODEL_SAM
+    - CORE_MODEL_SAM2
+    - CORE_MODEL_CLIP
+    - CORE_MODEL_GAZE
+    - SMOLVLM2
+    - DEPTH_ESTIMATION
+    - MOONDREAM2
+    - CORE_MODEL_TROCR
+    - CORE_MODEL_GROUNDINGDINO
+    - CORE_MODEL_YOLO_WORLD
+    - CORE_MODEL_PE

@@ -69,7 +69,16 @@ class LocalONNXModel:
         if self.model_path.suffix != ".onnx":
             raise ValueError(f"Solo se soportan modelos ONNX, recibido: {self.model_path.suffix}")
 
-        logger.info(f"🔧 Cargando modelo local: {self.model_path.name}")
+        logger.info(
+            "Loading local model",
+            extra={
+                "component": "local_model",
+                "event": "model_load_start",
+                "model_path": str(self.model_path),
+                "model_name": self.model_path.name,
+                "imgsz": imgsz,
+            }
+        )
 
         # Validación: detectar mismatch común entre nombre de archivo y imgsz
         # Ejemplo: yolo11n-640.onnx pero imgsz=320
@@ -79,32 +88,47 @@ class LocalONNXModel:
                 model_size = int(parts[-1])
                 if model_size != imgsz:
                     logger.warning(
-                        f"⚠️ MISMATCH DETECTADO: Modelo '{self.model_path.name}' parece ser {model_size}×{model_size}, "
-                        f"pero imgsz configurado es {imgsz}. "
-                        f"Esto causará RuntimeError en ONNX Runtime."
-                    )
-                    logger.warning(
-                        f"💡 Solución: Cambiar 'models.imgsz: {model_size}' en config.yaml "
-                        f"o usar modelo 'yolo11n-{imgsz}.onnx'"
+                        "Model size mismatch detected",
+                        extra={
+                            "component": "local_model",
+                            "event": "model_size_mismatch",
+                            "model_name": self.model_path.name,
+                            "model_expected_size": model_size,
+                            "configured_imgsz": imgsz,
+                            "will_cause": "RuntimeError in ONNX Runtime",
+                            "solution": f"Change 'models.imgsz: {model_size}' in config.yaml or use model 'yolo11n-{imgsz}.onnx'"
+                        }
                     )
 
         try:
             self.model = YOLO(str(self.model_path))
             self.imgsz = imgsz
-            logger.info(f"✅ Modelo cargado: {self.model_path.name} (imgsz={imgsz})")
+            logger.info(
+                "Model loaded successfully",
+                extra={
+                    "component": "local_model",
+                    "event": "model_load_success",
+                    "model_name": self.model_path.name,
+                    "imgsz": imgsz,
+                }
+            )
 
         except Exception as e:
-            logger.error(f"❌ Error cargando modelo: {e}")
+            is_dimension_error = "Got invalid dimensions" in str(e) or "Expected:" in str(e)
 
-            # Mensaje de ayuda si es RuntimeError de dimensiones
-            if "Got invalid dimensions" in str(e) or "Expected:" in str(e):
-                logger.error(
-                    f"💡 Este error ocurre cuando el tamaño de imagen (imgsz={imgsz}) no coincide "
-                    f"con el tamaño con el que se exportó el modelo ONNX."
-                )
-                logger.error(
-                    f"   Solución: Verificar que 'models.imgsz' en config.yaml coincida con el modelo."
-                )
+            logger.error(
+                "Failed to load model",
+                extra={
+                    "component": "local_model",
+                    "event": "model_load_failed",
+                    "model_path": str(self.model_path),
+                    "imgsz": imgsz,
+                    "error": str(e),
+                    "error_type": "dimension_mismatch" if is_dimension_error else "unknown",
+                    "solution": "Verify 'models.imgsz' in config.yaml matches the ONNX model" if is_dimension_error else None,
+                },
+                exc_info=True
+            )
 
             raise ValueError(f"Error cargando modelo ONNX: {e}") from e
 
@@ -151,13 +175,18 @@ class LocalONNXModel:
             # Error común: mismatch entre imgsz y modelo ONNX
             if "Got invalid dimensions" in str(e) or "Expected:" in str(e):
                 logger.error(
-                    f"❌ ONNX Runtime Error: El modelo espera un tamaño diferente de imagen. "
-                    f"Configurado: {self.imgsz}×{self.imgsz}, Imagen recibida: {image.shape}"
+                    "ONNX Runtime dimension mismatch",
+                    extra={
+                        "component": "local_model",
+                        "event": "inference_dimension_error",
+                        "model_name": self.model_path.name,
+                        "configured_imgsz": self.imgsz,
+                        "image_shape": image.shape,
+                        "error": str(e),
+                        "solution": "Change 'models.imgsz' in config.yaml to match ONNX model",
+                    },
+                    exc_info=True
                 )
-                logger.error(
-                    f"💡 Solución: Cambiar 'models.imgsz' en config.yaml para coincidir con el modelo ONNX."
-                )
-                logger.error(f"   Modelo: {self.model_path.name}")
             raise
 
     @property
@@ -323,14 +352,29 @@ def get_model_from_config(
         if not local_path:
             raise ValueError("local_path es requerido cuando use_local=True")
 
-        logger.info(f"🔧 Usando modelo local: {local_path}")
+        logger.info(
+            "Using local model",
+            extra={
+                "component": "model_factory",
+                "event": "local_model_selected",
+                "model_path": local_path,
+                "imgsz": imgsz,
+            }
+        )
         return LocalONNXModel(model_path=local_path, imgsz=imgsz)
 
     else:
         if not model_id or not api_key:
             raise ValueError("model_id y api_key son requeridos cuando use_local=False")
 
-        logger.info(f"🌐 Usando modelo Roboflow: {model_id}")
+        logger.info(
+            "Using Roboflow model",
+            extra={
+                "component": "model_factory",
+                "event": "roboflow_model_selected",
+                "model_id": model_id,
+            }
+        )
         from inference.models.utils import get_model
         return get_model(model_id=model_id, api_key=api_key)
 

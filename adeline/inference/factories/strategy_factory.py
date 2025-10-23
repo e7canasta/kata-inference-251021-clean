@@ -54,10 +54,24 @@ class StrategyFactory:
         )
 
         if config.STABILIZATION_MODE == 'none':
-            logger.info("🔲 Stabilization: NONE (baseline)")
+            logger.info(
+                "Stabilization disabled",
+                extra={
+                    "component": "strategy_factory",
+                    "event": "stabilization_none",
+                    "mode": "none",
+                }
+            )
             return None
 
-        logger.info("🔧 Creating stabilization strategy...")
+        logger.info(
+            "Creating stabilization strategy",
+            extra={
+                "component": "strategy_factory",
+                "event": "stabilization_create_start",
+                "mode": config.STABILIZATION_MODE,
+            }
+        )
 
         # Crear configuración validada
         stab_config = StabilizationConfig(
@@ -72,5 +86,15 @@ class StrategyFactory:
         # Factory: Crear stabilizer
         stabilizer = create_stabilization_strategy(stab_config)
 
-        logger.info(f"✅ Stabilization: {config.STABILIZATION_MODE.upper()}")
+        logger.info(
+            "Stabilization strategy created",
+            extra={
+                "component": "strategy_factory",
+                "event": "stabilization_created",
+                "mode": config.STABILIZATION_MODE,
+                "iou_threshold": config.STABILIZATION_IOU_THRESHOLD,
+                "min_frames": config.STABILIZATION_MIN_FRAMES,
+                "max_gap": config.STABILIZATION_MAX_GAP,
+            }
+        )
         return stabilizer

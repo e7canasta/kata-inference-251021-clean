@@ -1,0 +1,72 @@
+{"timestamp": "2025-10-23T02:26:58.041409+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Adeline Inference Pipeline starting..."}
+{"timestamp": "2025-10-23T02:26:58.041550+00:00", "level": null, "logger": null, "message": "\ud83d\ude80 Inicializando InferencePipeline con MQTT..."}
+{"timestamp": "2025-10-23T02:26:58.041587+00:00", "level": null, "logger": null, "message": "\ud83d\udce1 Configurando Data Plane..."}
+{"timestamp": "2025-10-23T02:26:58.041660+00:00", "level": null, "logger": null, "message": "\ud83d\udd0c Conectando Data Plane a: localhost:1883"}
+{"timestamp": "2025-10-23T02:26:58.042264+00:00", "level": null, "logger": null, "message": "\u2705 Data Plane conectado a localhost:1883"}
+{"timestamp": "2025-10-23T02:26:58.042373+00:00", "level": null, "logger": null, "message": "\ud83d\udcca Watchdog conectado al MetricsPublisher"}
+{"timestamp": "2025-10-23T02:26:58.042422+00:00", "level": null, "logger": null, "message": "\ud83d\udcca Watchdog conectado al Data Plane"}
+{"timestamp": "2025-10-23T02:26:58.042448+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Building inference handler..."}
+{"timestamp": "2025-10-23T02:26:58.042476+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 InferenceHandler: FIXED ROI"}
+{"timestamp": "2025-10-23T02:26:58.042517+00:00", "level": null, "logger": null, "message": "\ud83d\udccd ROI Strategy: FIXED (x: 0.20-0.60, y: 0.20-0.95) | \ud83d\udd0d resize_to_model=TRUE (zoom ROI \u2192 320\u00d7320)"}
+{"timestamp": "2025-10-23T02:26:58.042549+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Usando modelo local: models/yolo12m-320.onnx"}
+{"timestamp": "2025-10-23T02:26:58.042624+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Cargando modelo local: yolo12m-320.onnx"}
+WARNING ⚠ Unable to automatically guess model task, assuming 'task=detect'. Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'.
+{"timestamp": "2025-10-23T02:26:58.046161+00:00", "level": null, "logger": null, "message": "\u2705 Modelo cargado: yolo12m-320.onnx (imgsz=320)"}
+{"timestamp": "2025-10-23T02:26:58.046235+00:00", "level": null, "logger": null, "message": "\ud83d\udccd Creating FixedROIInferenceHandler (static ROI)"}
+{"timestamp": "2025-10-23T02:26:58.046267+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Building sinks..."}
+{"timestamp": "2025-10-23T02:26:58.046314+00:00", "level": null, "logger": null, "message": "\u2705 MQTT sink added"}
+{"timestamp": "2025-10-23T02:26:58.046343+00:00", "level": null, "logger": null, "message": "\u2705 Sink created: mqtt (priority=1)"}
+{"timestamp": "2025-10-23T02:26:58.047484+00:00", "level": null, "logger": null, "message": "\u2705 Visualization sink added: Inference Pipeline (Fixed ROI)"}
+{"timestamp": "2025-10-23T02:26:58.047532+00:00", "level": null, "logger": null, "message": "\u2705 Sink created: visualization (priority=100)"}
+{"timestamp": "2025-10-23T02:26:58.047568+00:00", "level": null, "logger": null, "message": "\ud83d\udcca Total sinks created: 2"}
+{"timestamp": "2025-10-23T02:26:58.047595+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Wrapping sink with stabilization..."}
+{"timestamp": "2025-10-23T02:26:58.050976+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Creating stabilization strategy..."}
+{"timestamp": "2025-10-23T02:26:58.051033+00:00", "level": null, "logger": null, "message": "\u23f1\ufe0f Stabilization: TEMPORAL+HYSTERESIS+IoU (min_frames=3, max_gap=2, appear=0.50, persist=0.30, iou_threshold=0.30)"}
+{"timestamp": "2025-10-23T02:26:58.051083+00:00", "level": null, "logger": null, "message": "TemporalHysteresisStabilizer initialized: min_frames=3, max_gap=2, appear_conf=0.50, persist_conf=0.30, iou_threshold=0.30, matcher_strategies=['IoUMatchingStrategy', 'ClassOnlyStrategy']"}
+{"timestamp": "2025-10-23T02:26:58.051112+00:00", "level": null, "logger": null, "message": "\u2705 Stabilization: TEMPORAL"}
+{"timestamp": "2025-10-23T02:26:58.051139+00:00", "level": null, "logger": null, "message": "\u2705 Stabilization wrapper: TEMPORAL"}
+{"timestamp": "2025-10-23T02:26:58.051163+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Building InferencePipeline..."}
+{"timestamp": "2025-10-23T02:26:58.051186+00:00", "level": null, "logger": null, "message": "\ud83d\udd27 Creating custom logic pipeline (ROI based)..."}
+{"timestamp": "2025-10-23T02:26:58.051271+00:00", "level": null, "logger": null, "message": "\u2705 Pipeline created successfully"}
+{"timestamp": "2025-10-23T02:26:58.051297+00:00", "level": null, "logger": null, "message": "\ud83c\udfae Configurando Control Plane..."}
+{"timestamp": "2025-10-23T02:26:58.051355+00:00", "level": null, "logger": null, "message": "\u2705 stabilization_stats command registered"}
+{"timestamp": "2025-10-23T02:26:58.051381+00:00", "level": null, "logger": null, "message": "\ud83d\udd0c Conectando a MQTT broker: localhost:1883"}
+{"timestamp": "2025-10-23T02:26:58.051876+00:00", "level": null, "logger": null, "message": "\u2705 Control Plane conectado a localhost:1883"}
+{"timestamp": "2025-10-23T02:26:58.051974+00:00", "level": null, "logger": null, "message": "\ud83d\udce1 Suscrito a: inference/control/commands"}
+{"timestamp": "2025-10-23T02:26:58.052051+00:00", "level": null, "logger": null, "message": "\u25b6\ufe0f Iniciando pipeline autom\u00e1ticamente..."}
+{"timestamp": "2025-10-23T02:26:58.052129+00:00", "level": null, "logger": null, "message": "\ud83d\udce4 Status publicado: connected"}
+Loading models/yolo12m-320.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.21.1 CPUExecutionProvider
+{"timestamp": "2025-10-23T02:27:15.210841+00:00", "level": null, "logger": null, "message": "\ud83d\udce5 Comando recibido: stop", "component": "control_plane", "command": "stop", "mqtt_topic": "inference/control/commands", "trace_id": "cmd-stop-0f413e68", "payload": {"command": "stop"}}
+{"timestamp": "2025-10-23T02:27:15.211000+00:00", "level": null, "logger": null, "message": "\u23f9\ufe0f Comando STOP recibido", "trace_id": "cmd-stop-0f413e68"}
+{"timestamp": "2025-10-23T02:27:15.270810+00:00", "level": null, "logger": null, "message": "\u2705 Pipeline iniciado y corriendo"}
+{"timestamp": "2025-10-23T02:27:15.270974+00:00", "level": null, "logger": null, "message": "\u2705 Setup completado"}
+{"timestamp": "2025-10-23T02:27:15.271038+00:00", "level": null, "logger": null, "message": "\n======================================================================"}
+{"timestamp": "2025-10-23T02:27:15.271064+00:00", "level": null, "logger": null, "message": "\ud83c\udfac InferencePipeline con MQTT activo y corriendo"}
+{"timestamp": "2025-10-23T02:27:15.271084+00:00", "level": null, "logger": null, "message": "======================================================================"}
+{"timestamp": "2025-10-23T02:27:15.271108+00:00", "level": null, "logger": null, "message": "\ud83d\udce1 Control Topic: inference/control/commands"}
+{"timestamp": "2025-10-23T02:27:15.271130+00:00", "level": null, "logger": null, "message": "\ud83d\udcca Data Topic: inference/data/detections"}
+{"timestamp": "2025-10-23T02:27:15.271160+00:00", "level": null, "logger": null, "message": "\u25b6\ufe0f  Estado: RUNNING"}
+{"timestamp": "2025-10-23T02:27:15.271182+00:00", "level": null, "logger": null, "message": "\n\ud83d\udca1 Comandos MQTT disponibles:"}
+{"timestamp": "2025-10-23T02:27:15.271203+00:00", "level": null, "logger": null, "message": "   PAUSE:   {\"command\": \"pause\"}   - Pausa el procesamiento"}
+{"timestamp": "2025-10-23T02:27:15.271223+00:00", "level": null, "logger": null, "message": "   RESUME:  {\"command\": \"resume\"}  - Reanuda el procesamiento"}
+{"timestamp": "2025-10-23T02:27:15.271244+00:00", "level": null, "logger": null, "message": "   STOP:    {\"command\": \"stop\"}    - Detiene y finaliza"}
+{"timestamp": "2025-10-23T02:27:15.271263+00:00", "level": null, "logger": null, "message": "   STATUS:  {\"command\": \"status\"}  - Consulta estado actual"}
+{"timestamp": "2025-10-23T02:27:15.271295+00:00", "level": null, "logger": null, "message": "   METRICS: {\"command\": \"metrics\"} - Publica m\u00e9tricas del pipeline"}
+{"timestamp": "2025-10-23T02:27:15.271318+00:00", "level": null, "logger": null, "message": "   STABILIZATION_STATS: {\"command\": \"stabilization_stats\"} - Estad\u00edsticas de detecci\u00f3n estabilizada"}
+{"timestamp": "2025-10-23T02:27:15.271338+00:00", "level": null, "logger": null, "message": "\n\u2328\ufe0f  Presiona Ctrl+C para salir"}
+{"timestamp": "2025-10-23T02:27:15.271359+00:00", "level": null, "logger": null, "message": "======================================================================\n"}
+{"timestamp": "2025-10-23T02:27:15.271488+00:00", "level": null, "logger": null, "message": "\u2705 Pipeline detenido", "trace_id": "cmd-stop-0f413e68"}
+{"timestamp": "2025-10-23T02:27:15.271609+00:00", "level": null, "logger": null, "message": "\ud83d\udce4 Status publicado: stopped", "trace_id": "cmd-stop-0f413e68"}
+{"timestamp": "2025-10-23T02:27:15.271640+00:00", "level": null, "logger": null, "message": "\ud83d\uded1 Finalizando servicio...", "trace_id": "cmd-stop-0f413e68"}
+{"timestamp": "2025-10-23T02:27:15.271698+00:00", "level": null, "logger": null, "message": "\ud83e\uddf9 Limpiando recursos..."}
+{"timestamp": "2025-10-23T02:27:15.271750+00:00", "level": null, "logger": null, "message": "\ud83d\udd0c Desconectando Control Plane..."}
+{"timestamp": "2025-10-23T02:27:15.271831+00:00", "level": null, "logger": null, "message": "\ud83d\udce4 Status publicado: disconnected"}
+{"timestamp": "2025-10-23T02:27:15.272022+00:00", "level": null, "logger": null, "message": "\u26a0\ufe0f Control Plane desconectado (rc=0)"}
+{"timestamp": "2025-10-23T02:27:15.272074+00:00", "level": null, "logger": null, "message": "\u2705 Control Plane desconectado"}
+{"timestamp": "2025-10-23T02:27:15.272105+00:00", "level": null, "logger": null, "message": "\ud83d\udcca Data Plane stats: {'messages_published': 17, 'connected': True, 'topic': 'inference/data/detections'}"}
+{"timestamp": "2025-10-23T02:27:15.272126+00:00", "level": null, "logger": null, "message": "\ud83d\udd0c Desconectando Data Plane..."}
+{"timestamp": "2025-10-23T02:27:16.078864+00:00", "level": null, "logger": null, "message": "\u26a0\ufe0f Data Plane desconectado (rc=0)"}
+{"timestamp": "2025-10-23T02:27:16.079017+00:00", "level": null, "logger": null, "message": "\u2705 Data Plane desconectado"}
+{"timestamp": "2025-10-23T02:27:16.079068+00:00", "level": null, "logger": null, "message": "\ud83d\udc4b Hasta luego!"}
+

@@ -69,14 +69,29 @@ class InferenceHandlerFactory:
         # Standard Pipeline (sin custom logic)
         # ====================================================================
         if roi_mode == 'none':
-            logger.info("📦 InferenceHandler: STANDARD (no ROI)")
+            logger.info(
+                "InferenceHandler created",
+                extra={
+                    "component": "handler_factory",
+                    "event": "handler_created",
+                    "handler_type": "standard",
+                    "roi_mode": "none"
+                }
+            )
             handler = StandardInferenceHandler()
             return handler, None
 
         # ====================================================================
         # Custom Logic con ROI (adaptive o fixed)
         # ====================================================================
-        logger.info(f"🔧 InferenceHandler: {roi_mode.upper()} ROI")
+        logger.info(
+            "Creating InferenceHandler with ROI",
+            extra={
+                "component": "handler_factory",
+                "event": "handler_creation_start",
+                "roi_mode": roi_mode
+            }
+        )
 
         # 1. Crear ROI state (valida config y construye)
         roi_config = ROIStrategyConfig(
@@ -124,7 +139,15 @@ class InferenceHandlerFactory:
 
         # 5. Crear handler apropiado según modo ROI
         if roi_mode == 'adaptive':
-            logger.info("🔄 Creating AdaptiveInferenceHandler (dynamic ROI)")
+            logger.info(
+                "AdaptiveInferenceHandler created",
+                extra={
+                    "component": "handler_factory",
+                    "event": "handler_created",
+                    "handler_type": "adaptive",
+                    "roi_mode": "adaptive"
+                }
+            )
             handler = AdaptiveInferenceHandler(
                 model=model,
                 inference_config=inference_config,
@@ -134,7 +157,15 @@ class InferenceHandlerFactory:
             )
 
         elif roi_mode == 'fixed':
-            logger.info("📍 Creating FixedROIInferenceHandler (static ROI)")
+            logger.info(
+                "FixedROIInferenceHandler created",
+                extra={
+                    "component": "handler_factory",
+                    "event": "handler_created",
+                    "handler_type": "fixed",
+                    "roi_mode": "fixed"
+                }
+            )
             handler = FixedROIInferenceHandler(
                 model=model,
                 inference_config=inference_config,

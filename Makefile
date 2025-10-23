@@ -71,43 +71,51 @@ check-deps: ## Check for outdated dependencies
 # ============================================================================
 # RUNNING PIPELINE
 # ============================================================================
+# Env vars para suprimir warnings de modelos no usados
+ENV_VARS := PALIGEMMA_ENABLED=False FLORENCE2_ENABLED=False QWEN_2_5_ENABLED=False \
+	CORE_MODEL_SAM_ENABLED=False CORE_MODEL_SAM2_ENABLED=False CORE_MODEL_CLIP_ENABLED=False \
+	CORE_MODEL_GAZE_ENABLED=False SMOLVLM2_ENABLED=False DEPTH_ESTIMATION_ENABLED=False \
+	MOONDREAM2_ENABLED=False CORE_MODEL_TROCR_ENABLED=False CORE_MODEL_GROUNDINGDINO_ENABLED=False \
+	CORE_MODEL_YOLO_WORLD_ENABLED=False CORE_MODEL_PE_ENABLED=False
+
 run: ## Run main inference pipeline (auto-start)
 	@echo "$(BLUE)Starting Adeline Inference Pipeline...$(NC)"
 	@echo "$(YELLOW)Press Ctrl+C to stop$(NC)"
-	$(UV) run python -m adeline
+	$(ENV_VARS) $(UV) run python -m adeline
 
 start: run ## Alias for 'run'
 
 # ============================================================================
 # CONTROL COMMANDS (requires pipeline running)
 # ============================================================================
+
 stop: ## Stop running pipeline via MQTT
 	@echo "$(BLUE)Sending STOP command...$(NC)"
-	$(UV) run python -m adeline.control.cli stop
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli stop
 
 pause: ## Pause pipeline processing
 	@echo "$(BLUE)Sending PAUSE command...$(NC)"
-	$(UV) run python -m adeline.control.cli pause
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli pause
 
 resume: ## Resume pipeline processing
 	@echo "$(BLUE)Sending RESUME command...$(NC)"
-	$(UV) run python -m adeline.control.cli resume
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli resume
 
 status: ## Query pipeline status
 	@echo "$(BLUE)Querying pipeline status...$(NC)"
-	$(UV) run python -m adeline.control.cli status
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli status
 
 metrics: ## Request pipeline metrics
 	@echo "$(BLUE)Requesting pipeline metrics...$(NC)"
-	$(UV) run python -m adeline.control.cli metrics
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli metrics
 
 toggle-crop: ## Toggle adaptive ROI crop
 	@echo "$(BLUE)Toggling adaptive ROI crop...$(NC)"
-	$(UV) run python -m adeline.control.cli toggle_crop
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli toggle_crop
 
 stabilization-stats: ## Get detection stabilization statistics
 	@echo "$(BLUE)Requesting stabilization stats...$(NC)"
-	$(UV) run python -m adeline.control.cli stabilization_stats
+	$(ENV_VARS) $(UV) run python -m adeline.control.cli stabilization_stats
 
 # ============================================================================
 # MONITORING

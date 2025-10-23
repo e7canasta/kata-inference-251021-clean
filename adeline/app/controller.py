@@ -39,6 +39,7 @@ from ..control import MQTTControlPlane
 from ..data import MQTTDataPlane
 from ..config import PipelineConfig, AdelineConfig
 from .builder import PipelineBuilder
+from ..logging import log_error_with_context
 
 # Pydantic validation
 from pydantic import ValidationError
@@ -101,12 +102,24 @@ class InferencePipelineController:
         Returns:
             bool: True si setup exitoso, False si falla
         """
-        logger.info("🚀 Inicializando InferencePipeline con MQTT...")
+        logger.info(
+            "🚀 Inicializando InferencePipeline con MQTT",
+            extra={
+                "component": "controller",
+                "event": "setup_start",
+            }
+        )
 
         # ====================================================================
         # 1. Configurar Data Plane (publicador de inferencias)
         # ====================================================================
-        logger.info("📡 Configurando Data Plane...")
+        logger.info(
+            "📡 Configurando Data Plane",
+            extra={
+                "component": "controller",
+                "event": "data_plane_setup",
+            }
+        )
         self.data_plane = MQTTDataPlane(
             broker_host=self.config.MQTT_BROKER,
             broker_port=self.config.MQTT_PORT,
@@ -118,7 +131,14 @@ class InferencePipelineController:
         )
 
         if not self.data_plane.connect(timeout=10):
-            logger.error("❌ No se pudo conectar Data Plane")
+            log_error_with_context(
+                logger,
+                message="❌ No se pudo conectar Data Plane",
+                component="controller",
+                event="data_plane_connection_failed",
+                broker_host=self.config.MQTT_BROKER,
+                broker_port=self.config.MQTT_PORT,
+            )
             return False
 
         # Conectar watchdog para publicar métricas
@@ -160,7 +180,13 @@ class InferencePipelineController:
         # ====================================================================
         # 6. Configurar Control Plane (receptor de comandos)
         # ====================================================================
-        logger.info("🎮 Configurando Control Plane...")
+        logger.info(
+            "🎮 Configurando Control Plane",
+            extra={
+                "component": "controller",
+                "event": "control_plane_setup",
+            }
+        )
         self.control_plane = MQTTControlPlane(
             broker_host=self.config.MQTT_BROKER,
             broker_port=self.config.MQTT_PORT,
@@ -174,23 +200,54 @@ class InferencePipelineController:
         self._setup_control_callbacks()
 
         if not self.control_plane.connect(timeout=10):
-            logger.error("❌ No se pudo conectar Control Plane")
+            log_error_with_context(
+                logger,
+                message="❌ No se pudo conectar Control Plane",
+                component="controller",
+                event="control_plane_connection_failed",
+                broker_host=self.config.MQTT_BROKER,
+                broker_port=self.config.MQTT_PORT,
+            )
             return False
 
         # ====================================================================
         # 7. Auto-iniciar el pipeline
         # ====================================================================
-        logger.info("▶️ Iniciando pipeline automáticamente...")
+        logger.info(
+            "▶️ Iniciando pipeline automáticamente",
+            extra={
+                "component": "controller",
+                "event": "pipeline_start_requested",
+            }
+        )
         try:
             self.is_running = True
             self.pipeline.start()
-            logger.info("✅ Pipeline iniciado y corriendo")
+            logger.info(
+                "✅ Pipeline iniciado y corriendo",
+                extra={
+                    "component": "controller",
+                    "event": "pipeline_started",
+                }
+            )
         except Exception as e:
-            logger.error(f"❌ Error iniciando pipeline: {e}", exc_info=True)
+            log_error_with_context(
+                logger,
+                message="❌ Error iniciando pipeline",
+                exception=e,
+                component="controller",
+                event="pipeline_start_failed",
+            )
             self.is_running = False
             return False
 
-        logger.info("✅ Setup completado")
+        logger.info(
+            "✅ Setup completado",
+            extra={
+                "component": "controller",
+                "event": "setup_complete",
+            }
+        )
         return True
 
     def _setup_control_callbacks(self):
@@ -234,7 +291,15 @@ class InferencePipelineController:
                 self.is_running = False
                 logger.info("✅ Pipeline detenido")
             except Exception as e:
-                logger.error(f"❌ Error deteniendo pipeline: {e}")
+                logger.error(
+                    "Failed to stop pipeline",
+                    extra={
+                        "component": "pipeline_controller",
+                        "event": "stop_error",
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    }
+                )
 
         # Publicar status
         self.control_plane.publish_status("stopped")
@@ -252,7 +317,16 @@ class InferencePipelineController:
                 self.control_plane.publish_status("paused")
                 logger.info("✅ Pipeline pausado (usa RESUME para continuar)")
             except Exception as e:
-                logger.error(f"❌ Error pausando pipeline: {e}", exc_info=True)
+                logger.error(
+                    "Failed to pause pipeline",
+                    extra={
+                        "component": "pipeline_controller",
+                        "event": "pause_error",
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    },
+                    exc_info=True
+                )
         else:
             logger.warning("⚠️ Pipeline no está corriendo, no se puede pausar")
     
@@ -265,7 +339,16 @@ class InferencePipelineController:
                 self.control_plane.publish_status("running")
                 logger.info("✅ Pipeline resumido")
             except Exception as e:
-                logger.error(f"❌ Error resumiendo pipeline: {e}", exc_info=True)
+                logger.error(
+                    "Failed to resume pipeline",
+                    extra={
+                        "component": "pipeline_controller",
+                        "event": "resume_error",
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    },
+                    exc_info=True
+                )
         else:
             logger.warning("⚠️ Pipeline no está corriendo, no se puede resumir (usa STOP para terminar correctamente)")
 
@@ -281,7 +364,16 @@ class InferencePipelineController:
         try:
             self.data_plane.publish_metrics()
         except Exception as e:
-            logger.error(f"❌ Error publicando métricas: {e}", exc_info=True)
+            logger.error(
+                "Failed to publish metrics",
+                extra={
+                    "component": "pipeline_controller",
+                    "event": "metrics_publish_error",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                exc_info=True
+            )
 
     def _handle_toggle_crop(self):
         """
@@ -340,7 +432,16 @@ class InferencePipelineController:
                     logger.info(f"     - {class_name}: {count}")
 
         except Exception as e:
-            logger.error(f"❌ Error obteniendo estadísticas de estabilización: {e}", exc_info=True)
+            logger.error(
+                "Failed to get stabilization stats",
+                extra={
+                    "component": "pipeline_controller",
+                    "event": "stabilization_stats_error",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                exc_info=True
+            )
 
     def run(self):
         """Ejecuta el pipeline"""
@@ -384,16 +485,35 @@ class InferencePipelineController:
     
     def _signal_handler(self, signum, frame):
         """Handler para señales (Ctrl+C)"""
-        logger.info("\n\n⚠️ Señal de terminación recibida...")
+        logger.info(
+            "\n\n⚠️ Señal de terminación recibida",
+            extra={
+                "component": "controller",
+                "event": "signal_received",
+                "signal": signum,
+            }
+        )
         self.shutdown_event.set()
         # Forzar terminación del pipeline inmediatamente
         if self.pipeline and self.is_running:
-            logger.info("🛑 Deteniendo pipeline...")
+            logger.info(
+                "🛑 Deteniendo pipeline",
+                extra={
+                    "component": "controller",
+                    "event": "pipeline_stop_requested",
+                }
+            )
             try:
                 self.pipeline.terminate()
                 self.is_running = False
             except Exception as e:
-                logger.error(f"Error deteniendo pipeline: {e}")
+                log_error_with_context(
+                    logger,
+                    message="Error deteniendo pipeline",
+                    exception=e,
+                    component="controller",
+                    event="pipeline_stop_error",
+                )
     
     def cleanup(self):
         """
@@ -404,42 +524,110 @@ class InferencePipelineController:
         - Manejo de errores con try/except en todos los disconnects
         - Eliminado os._exit(0) (deja que Python maneje salida normalmente)
         """
-        logger.info("🧹 Limpiando recursos...")
+        logger.info(
+            "🧹 Limpiando recursos",
+            extra={
+                "component": "controller",
+                "event": "cleanup_start",
+            }
+        )
 
         # 1. Terminar pipeline si está corriendo
         if self.pipeline and self.is_running:
             try:
-                logger.info("🛑 Deteniendo pipeline...")
+                logger.info(
+                    "🛑 Deteniendo pipeline",
+                    extra={
+                        "component": "controller",
+                        "event": "pipeline_terminate",
+                    }
+                )
                 self.pipeline.terminate()
                 self.is_running = False
 
                 # Esperar con timeout más largo (10s en lugar de 3s)
-                logger.info("⏳ Esperando threads del pipeline (timeout 10s)...")
+                logger.info(
+                    "⏳ Esperando threads del pipeline (timeout 10s)",
+                    extra={
+                        "component": "controller",
+                        "event": "pipeline_join",
+                        "timeout": 10.0,
+                    }
+                )
                 self.pipeline.join(timeout=10.0)
-                logger.info("✅ Pipeline detenido")
+                logger.info(
+                    "✅ Pipeline detenido",
+                    extra={
+                        "component": "controller",
+                        "event": "pipeline_stopped",
+                    }
+                )
 
             except Exception as e:
-                logger.error(f"❌ Error deteniendo pipeline: {e}")
+                log_error_with_context(
+                    logger,
+                    message="❌ Error deteniendo pipeline",
+                    exception=e,
+                    component="controller",
+                    event="pipeline_terminate_error",
+                )
 
         # 2. Desconectar Control Plane
         if self.control_plane:
             try:
                 self.control_plane.disconnect()
-                logger.info("✅ Control Plane desconectado")
+                logger.info(
+                    "✅ Control Plane desconectado",
+                    extra={
+                        "component": "controller",
+                        "event": "control_plane_disconnected",
+                    }
+                )
             except Exception as e:
-                logger.error(f"❌ Error desconectando Control Plane: {e}")
+                log_error_with_context(
+                    logger,
+                    message="❌ Error desconectando Control Plane",
+                    exception=e,
+                    component="controller",
+                    event="control_plane_disconnect_error",
+                )
 
         # 3. Desconectar Data Plane
         if self.data_plane:
             try:
                 stats = self.data_plane.get_stats()
-                logger.info(f"📊 Data Plane stats: {stats}")
+                logger.info(
+                    "📊 Data Plane stats",
+                    extra={
+                        "component": "controller",
+                        "event": "data_plane_stats",
+                        "stats": stats,
+                    }
+                )
                 self.data_plane.disconnect()
-                logger.info("✅ Data Plane desconectado")
+                logger.info(
+                    "✅ Data Plane desconectado",
+                    extra={
+                        "component": "controller",
+                        "event": "data_plane_disconnected",
+                    }
+                )
             except Exception as e:
-                logger.error(f"❌ Error desconectando Data Plane: {e}")
+                log_error_with_context(
+                    logger,
+                    message="❌ Error desconectando Data Plane",
+                    exception=e,
+                    component="controller",
+                    event="data_plane_disconnect_error",
+                )
 
-        logger.info("👋 Hasta luego!")
+        logger.info(
+            "👋 Hasta luego!",
+            extra={
+                "component": "controller",
+                "event": "cleanup_complete",
+            }
+        )
         # Eliminado os._exit(0) - dejamos que Python maneje cleanup normalmente
 
 
@@ -476,15 +664,26 @@ def main():
         print(f"❌ Error loading config: {e}")
         sys.exit(1)
 
-    # Configurar logging basado en config
-    logging.basicConfig(
-        level=getattr(logging, config.LOG_LEVEL.upper()),
-        format=config.LOG_FORMAT
+    # Configurar structured logging (JSON)
+    from ..logging import setup_logging
+    setup_logging(
+        level=config.LOG_LEVEL,
+        indent=config.JSON_INDENT,
+        log_file=config.LOG_FILE,
+        max_bytes=config.LOG_MAX_BYTES,
+        backup_count=config.LOG_BACKUP_COUNT
     )
 
     global logger
     logger = logging.getLogger(__name__)
-    logger.info("🔧 Adeline Inference Pipeline starting...")
+    logger.info(
+        "🔧 Adeline Inference Pipeline starting",
+        extra={
+            "component": "controller",
+            "event": "main_start",
+            "config_path": config_path,
+        }
+    )
 
     # Reducir verbosidad de paho-mqtt
     logging.getLogger('paho').setLevel(getattr(logging, config.PAHO_LOG_LEVEL.upper()))
@@ -495,7 +694,13 @@ def main():
     try:
         controller.run()
     except Exception as e:
-        logger.error(f"❌ Error fatal: {e}", exc_info=True)
+        log_error_with_context(
+            logger,
+            message="❌ Error fatal",
+            exception=e,
+            component="controller",
+            event="main_fatal_error",
+        )
         sys.exit(1)
 
 

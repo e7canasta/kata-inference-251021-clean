@@ -70,11 +70,26 @@ class CommandRegistry:
             Si comando ya existe, se sobrescribe con warning.
         """
         if command in self._commands:
-            logger.warning(f"⚠️ Comando '{command}' ya registrado, sobrescribiendo")
+            logger.warning(
+                "Comando ya registrado, sobrescribiendo",
+                extra={
+                    "component": "command_registry",
+                    "event": "duplicate_command_warning",
+                    "command": command
+                }
+            )
 
         self._commands[command] = handler
         self._descriptions[command] = description
-        logger.debug(f"📝 Comando registrado: '{command}' - {description}")
+        logger.debug(
+            "Comando registrado",
+            extra={
+                "component": "command_registry",
+                "event": "command_registered",
+                "command": command,
+                "description": description
+            }
+        )
 
     def execute(self, command: str):
         """
@@ -97,7 +112,14 @@ class CommandRegistry:
             )
 
         handler = self._commands[command]
-        logger.debug(f"⚙️ Ejecutando comando: '{command}'")
+        logger.debug(
+            "Ejecutando comando",
+            extra={
+                "component": "command_registry",
+                "event": "command_executing",
+                "command": command
+            }
+        )
         return handler()
 
     def is_available(self, command: str) -> bool:
