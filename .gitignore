@@ -7,6 +7,8 @@ docs/deepwiki/
 docs/history/
 docs/proposals/*.md
 
+logs/
+
 wheels/
 *.egg-info
 
