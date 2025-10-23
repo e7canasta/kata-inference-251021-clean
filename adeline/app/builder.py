@@ -17,8 +17,13 @@ Diseño: Complejidad por diseño
 - Toda la lógica de construcción centralizada aquí
 """
 from functools import partial
-from typing import Optional, Tuple, List, Callable, Any
+from typing import Optional, Tuple, List, Callable, Any, Union, TYPE_CHECKING
 import logging
+
+# Type-only imports (no circular import en runtime)
+if TYPE_CHECKING:
+    from ..data import MQTTDataPlane
+    from ..inference.roi import ROIState, FixedROIState
 
 # Lazy loading inference con disable automático
 from ..inference.loader import InferenceLoader
@@ -68,7 +73,9 @@ class PipelineBuilder:
         self.config = config
         self.stabilizer = None  # Se crea en wrap_sinks_with_stabilization()
 
-    def build_inference_handler(self) -> Tuple[BaseInferenceHandler, Optional[Any]]:
+    def build_inference_handler(
+        self
+    ) -> Tuple[BaseInferenceHandler, Optional[Union['ROIState', 'FixedROIState']]]:
         """
         Construye inference handler según configuración.
 
@@ -87,8 +94,8 @@ class PipelineBuilder:
 
     def build_sinks(
         self,
-        data_plane: Any,  # MQTTDataPlane (avoiding circular import)
-        roi_state: Optional[Any] = None,
+        data_plane: 'MQTTDataPlane',
+        roi_state: Optional[Union['ROIState', 'FixedROIState']] = None,
         inference_handler: Optional[BaseInferenceHandler] = None,
     ) -> List[Callable]:
         """
@@ -97,7 +104,7 @@ class PipelineBuilder:
         Delega a SinkFactory.
 
         Args:
-            data_plane: MQTTDataPlane
+            data_plane: MQTTDataPlane (type-safe via TYPE_CHECKING)
             roi_state: ROIState | FixedROIState | None
             inference_handler: BaseInferenceHandler | None
 
@@ -117,19 +124,23 @@ class PipelineBuilder:
 
     def wrap_sinks_with_stabilization(self, sinks: List[Callable]) -> List[Callable]:
         """
-        Wrappea primer sink (MQTT) con stabilization si está habilitado.
+        Wrappea MQTT sink con stabilization si está habilitado.
 
         Args:
             sinks: Lista de sinks (NO se modifica)
 
         Returns:
-            NUEVA lista con primer sink wrappeado
+            NUEVA lista con MQTT sink wrappeado
 
         Side effects:
             - Setea self.stabilizer si stabilization habilitado
 
         Note:
             Functional purity: No modifica input, retorna nuevo array.
+            Explicit over implicit: Busca MQTT sink por __name__, no por posición.
+
+        Raises:
+            ValueError: Si stabilization está habilitado pero no hay MQTT sink
         """
         if self.config.STABILIZATION_MODE == 'none':
             logger.info(
@@ -153,22 +164,48 @@ class PipelineBuilder:
         # Crear stabilizer usando factory
         self.stabilizer = StrategyFactory.create_stabilization_strategy(self.config)
 
-        # Wrappear primer sink (MQTT sink)
-        mqtt_sink = sinks[0]
+        # Buscar MQTT sink explícitamente por __name__ (no asumir posición)
+        mqtt_sink_idx = None
+        for i, sink in enumerate(sinks):
+            if hasattr(sink, '__name__') and sink.__name__ == 'mqtt_sink':
+                mqtt_sink_idx = i
+                break
+
+        if mqtt_sink_idx is None:
+            raise ValueError(
+                "No MQTT sink found to wrap with stabilization. "
+                "Ensure SinkFactory creates MQTT sink with __name__ = 'mqtt_sink'."
+            )
+
+        logger.info(
+            f"Found MQTT sink at index {mqtt_sink_idx}",
+            extra={
+                "component": "builder",
+                "event": "mqtt_sink_found",
+                "index": mqtt_sink_idx
+            }
+        )
+
+        mqtt_sink = sinks[mqtt_sink_idx]
         stabilized_sink = create_stabilization_sink(
             stabilizer=self.stabilizer,
             downstream_sink=mqtt_sink,
         )
 
-        # NUEVO array con wrapped sink (immutable operation)
-        new_sinks = [stabilized_sink] + sinks[1:]
+        # Reconstruir lista con MQTT sink wrappeado (immutable operation)
+        new_sinks = (
+            sinks[:mqtt_sink_idx] +
+            [stabilized_sink] +
+            sinks[mqtt_sink_idx+1:]
+        )
 
         logger.info(
             "Stabilization wrapper complete",
             extra={
                 "component": "builder",
                 "event": "stabilization_wrap_complete",
-                "stabilization_mode": self.config.STABILIZATION_MODE
+                "stabilization_mode": self.config.STABILIZATION_MODE,
+                "mqtt_sink_index": mqtt_sink_idx
             }
         )
         return new_sinks

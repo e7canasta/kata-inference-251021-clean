@@ -20,6 +20,10 @@ def create_mqtt_sink(data_plane: MQTTDataPlane) -> Callable:
 
     Returns:
         Función sink compatible con InferencePipeline
+
+    Note:
+        La función retornada tiene __name__ = 'mqtt_sink' para identificación
+        explícita en el pipeline builder (usado por stabilization wrapper).
     """
     def mqtt_sink(
         predictions: Union[Dict[str, Any], List[Dict[str, Any]]],
@@ -27,5 +31,8 @@ def create_mqtt_sink(data_plane: MQTTDataPlane) -> Callable:
     ):
         """Sink que publica predicciones vía MQTT"""
         data_plane.publish_inference(predictions, video_frame)
+
+    # Agregar __name__ explícito para identificación
+    mqtt_sink.__name__ = 'mqtt_sink'
 
     return mqtt_sink

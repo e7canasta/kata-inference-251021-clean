@@ -5451,3 +5451,509 @@
   "component": "controller",
   "event": "cleanup_complete"
 }
+{
+  "timestamp": "2025-10-23T04:26:42.280940+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udd27 Adeline Inference Pipeline starting",
+  "component": "controller",
+  "event": "main_start",
+  "config_path": "config/adeline/config.yaml"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.281180+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\ude80 Inicializando InferencePipeline con MQTT",
+  "component": "controller",
+  "event": "setup_start"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.281284+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udce1 Configurando Data Plane",
+  "component": "controller",
+  "event": "data_plane_setup"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.281507+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udd0c Conectando Data Plane",
+  "component": "data_plane",
+  "event": "connecting",
+  "broker_host": "localhost",
+  "broker_port": 1883,
+  "timeout": 10
+}
+{
+  "timestamp": "2025-10-23T04:26:42.282674+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Data Plane conectado",
+  "component": "data_plane",
+  "event": "connected",
+  "broker_host": "localhost",
+  "broker_port": 1883
+}
+{
+  "timestamp": "2025-10-23T04:26:42.282852+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Watchdog connected to MetricsPublisher",
+  "component": "metrics_publisher",
+  "event": "watchdog_connected"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.282965+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udcca Watchdog conectado al Data Plane",
+  "component": "data_plane",
+  "event": "watchdog_connected"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.283030+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Building inference handler",
+  "component": "builder",
+  "event": "handler_build_start"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.283090+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Creating InferenceHandler with ROI",
+  "component": "handler_factory",
+  "event": "handler_creation_start",
+  "roi_mode": "fixed"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.283218+00:00",
+  "level": null,
+  "logger": null,
+  "message": "ROI strategy selected: FIXED",
+  "component": "roi_factory",
+  "event": "roi_strategy_selected",
+  "roi_mode": "fixed",
+  "x_min": 0.2,
+  "y_min": 0.2,
+  "x_max": 0.6,
+  "y_max": 0.95,
+  "resize_to_model": true,
+  "imgsz": 320,
+  "description": "Static ROI with zoom enabled"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.283335+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Using local model",
+  "component": "model_factory",
+  "event": "local_model_selected",
+  "model_path": "models/yolo12m-320.onnx",
+  "imgsz": 320
+}
+{
+  "timestamp": "2025-10-23T04:26:42.283451+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Loading local model",
+  "component": "local_model",
+  "event": "model_load_start",
+  "model_path": "models/yolo12m-320.onnx",
+  "model_name": "yolo12m-320.onnx",
+  "imgsz": 320
+}
+{
+  "timestamp": "2025-10-23T04:26:42.287517+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Model loaded successfully",
+  "component": "local_model",
+  "event": "model_load_success",
+  "model_name": "yolo12m-320.onnx",
+  "imgsz": 320
+}
+{
+  "timestamp": "2025-10-23T04:26:42.287636+00:00",
+  "level": null,
+  "logger": null,
+  "message": "FixedROIInferenceHandler created",
+  "component": "handler_factory",
+  "event": "handler_created",
+  "handler_type": "fixed",
+  "roi_mode": "fixed"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.287713+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Building sinks",
+  "component": "builder",
+  "event": "sinks_build_start"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.287801+00:00",
+  "level": null,
+  "logger": null,
+  "message": "MQTT sink created",
+  "component": "sink_factory",
+  "event": "mqtt_sink_created"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.287856+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Sink created",
+  "component": "sink_registry",
+  "event": "sink_created",
+  "sink_name": "mqtt",
+  "priority": 1
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289070+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Visualization sink created",
+  "component": "sink_factory",
+  "event": "visualization_sink_created",
+  "window_name": "Inference Pipeline (Fixed ROI)",
+  "roi_mode": "fixed",
+  "display_stats": true
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289176+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Sink created",
+  "component": "sink_registry",
+  "event": "sink_created",
+  "sink_name": "visualization",
+  "priority": 100
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289240+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Sinks creation complete",
+  "component": "sink_registry",
+  "event": "sinks_creation_complete",
+  "total_sinks": 2
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289297+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Building InferencePipeline",
+  "component": "builder",
+  "event": "pipeline_build_start"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289348+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Creating custom logic pipeline",
+  "component": "builder",
+  "event": "pipeline_created",
+  "pipeline_type": "custom_logic",
+  "roi_mode": "fixed"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289550+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Pipeline build complete",
+  "component": "builder",
+  "event": "pipeline_build_complete"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289631+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83c\udfae Configurando Control Plane",
+  "component": "controller",
+  "event": "control_plane_setup"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.289745+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Connecting to MQTT broker",
+  "component": "control_plane",
+  "event": "connection_attempt",
+  "broker_host": "localhost",
+  "broker_port": 1883
+}
+{
+  "timestamp": "2025-10-23T04:26:42.290334+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Control Plane connected to broker",
+  "component": "control_plane",
+  "event": "broker_connected",
+  "broker_host": "localhost",
+  "broker_port": 1883
+}
+{
+  "timestamp": "2025-10-23T04:26:42.290500+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Subscribed to command topic",
+  "component": "control_plane",
+  "event": "topic_subscribed",
+  "topic": "inference/control/commands",
+  "qos": 1
+}
+{
+  "timestamp": "2025-10-23T04:26:42.290640+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u25b6\ufe0f Iniciando pipeline autom\u00e1ticamente",
+  "component": "controller",
+  "event": "pipeline_start_requested"
+}
+{
+  "timestamp": "2025-10-23T04:26:42.290703+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Status published",
+  "component": "control_plane",
+  "event": "status_published",
+  "status": "connected",
+  "topic": "inference/control/status"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.884029+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udce5 Comando recibido: stop",
+  "component": "control_plane",
+  "command": "stop",
+  "mqtt_topic": "inference/control/commands",
+  "trace_id": "cmd-stop-f5eb7443",
+  "payload": {
+    "command": "stop"
+  }
+}
+{
+  "timestamp": "2025-10-23T04:27:02.884197+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u23f9\ufe0f Comando STOP recibido",
+  "trace_id": "cmd-stop-f5eb7443"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989117+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Pipeline iniciado y corriendo",
+  "component": "controller",
+  "event": "pipeline_started"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989329+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Setup completado",
+  "component": "controller",
+  "event": "setup_complete"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989401+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\n======================================================================"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989458+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83c\udfac InferencePipeline con MQTT activo y corriendo"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989572+00:00",
+  "level": null,
+  "logger": null,
+  "message": "======================================================================"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989616+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Pipeline detenido",
+  "trace_id": "cmd-stop-f5eb7443"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989692+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udce1 Control Topic: inference/control/commands"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989923+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Status published",
+  "component": "control_plane",
+  "event": "status_published",
+  "status": "stopped",
+  "topic": "inference/control/status",
+  "trace_id": "cmd-stop-f5eb7443"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990140+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\uded1 Finalizando servicio...",
+  "trace_id": "cmd-stop-f5eb7443"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.989960+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udcca Data Topic: inference/data/detections"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990360+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u25b6\ufe0f  Estado: RUNNING"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990423+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\n\ud83d\udca1 Comandos MQTT disponibles:"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990489+00:00",
+  "level": null,
+  "logger": null,
+  "message": "   PAUSE:   {\"command\": \"pause\"}   - Pausa el procesamiento"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990549+00:00",
+  "level": null,
+  "logger": null,
+  "message": "   RESUME:  {\"command\": \"resume\"}  - Reanuda el procesamiento"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990611+00:00",
+  "level": null,
+  "logger": null,
+  "message": "   STOP:    {\"command\": \"stop\"}    - Detiene y finaliza"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990674+00:00",
+  "level": null,
+  "logger": null,
+  "message": "   STATUS:  {\"command\": \"status\"}  - Consulta estado actual"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990737+00:00",
+  "level": null,
+  "logger": null,
+  "message": "   METRICS: {\"command\": \"metrics\"} - Publica m\u00e9tricas del pipeline"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990790+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\n\u2328\ufe0f  Presiona Ctrl+C para salir"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990845+00:00",
+  "level": null,
+  "logger": null,
+  "message": "======================================================================\n"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.990938+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83e\uddf9 Limpiando recursos",
+  "component": "controller",
+  "event": "cleanup_start"
+}
+{
+  "timestamp": "2025-10-23T04:27:02.991008+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udd0c Desconectando Control Plane..."
+}
+{
+  "timestamp": "2025-10-23T04:27:02.991162+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Status published",
+  "component": "control_plane",
+  "event": "status_published",
+  "status": "disconnected",
+  "topic": "inference/control/status"
+}
+{
+  "timestamp": "2025-10-23T04:27:03.033772+00:00",
+  "level": null,
+  "logger": null,
+  "message": "Control Plane disconnected from broker",
+  "component": "control_plane",
+  "event": "broker_disconnected",
+  "return_code": 0
+}
+{
+  "timestamp": "2025-10-23T04:27:03.034024+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Control Plane desconectado",
+  "component": "controller",
+  "event": "control_plane_disconnected"
+}
+{
+  "timestamp": "2025-10-23T04:27:03.034112+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udcca Data Plane stats",
+  "component": "controller",
+  "event": "data_plane_stats",
+  "stats": {
+    "messages_published": 23,
+    "connected": true,
+    "topic": "inference/data/detections"
+  }
+}
+{
+  "timestamp": "2025-10-23T04:27:03.034190+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udd0c Desconectando Data Plane",
+  "component": "data_plane",
+  "event": "disconnecting"
+}
+{
+  "timestamp": "2025-10-23T04:27:03.792368+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u26a0\ufe0f Data Plane desconectado",
+  "component": "data_plane",
+  "event": "disconnected",
+  "rc": 0
+}
+{
+  "timestamp": "2025-10-23T04:27:03.792608+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\u2705 Data Plane desconectado",
+  "component": "controller",
+  "event": "data_plane_disconnected"
+}
+{
+  "timestamp": "2025-10-23T04:27:03.792706+00:00",
+  "level": null,
+  "logger": null,
+  "message": "\ud83d\udc4b Hasta luego!",
+  "component": "controller",
+  "event": "cleanup_complete"
+}
